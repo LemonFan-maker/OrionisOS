@@ -1,5 +1,6 @@
 #include "pic.h"
 #include "ports.h"
+#include "kernel/drivers/tty.h"
 #include <stdint.h>
 
 #define PIC1_COMMAND 0x20
@@ -46,4 +47,23 @@ void pic_unmask_irq(uint8_t irq) {
     }
     uint8_t value = inb(port) & ~(1 << irq);
     outb(port, value);
+}
+
+void pic_dump_masks() {
+    uint8_t master_mask = inb(PIC1_DATA);
+    uint8_t slave_mask  = inb(PIC2_DATA);
+
+    tty_print("\n--- PIC Interrupt Mask Register (IMR) Dump ---\n", 0xFFFF00);
+    tty_print("Master (IRQ 0-7):  0b", 0xFFFFFF);
+    for (int i = 7; i >= 0; i--) {
+        tty_print((master_mask & (1 << i)) ? "1" : "0", 0xFFFFFF);
+    }
+    tty_print(" (0x", 0xFFFFFF); print_hex(master_mask, 0xFFFFFF); tty_print(")\n", 0xFFFFFF);
+
+    tty_print("Slave  (IRQ 8-15): 0b", 0xFFFFFF);
+    for (int i = 7; i >= 0; i--) {
+        tty_print((slave_mask & (1 << i)) ? "1" : "0", 0xFFFFFF);
+    }
+    tty_print(" (0x", 0xFFFFFF); print_hex(slave_mask, 0xFFFFFF); tty_print(")\n", 0xFFFFFF);
+    tty_print("A '0' in a bit position means the IRQ is ENABLED (unmasked).\n", 0x00FF00);
 }

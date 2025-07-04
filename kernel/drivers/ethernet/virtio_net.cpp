@@ -1,11 +1,15 @@
 #include "virtio_net.h"
 #include "kernel/cpu/pci.h"
+
 #include "kernel/drivers/tty.h"
 #include "kernel/mem/pmm.h"
+#include "kernel/cpu/pic.h"
 #include "lib/libc.h"
 #include "timer.h"
 
 static uintptr_t pci_bars[6] = {0}; 
+static uint8_t virtio_net_irq = 0;
+static uint32_t virtio_notify_multiplier = 0;
 
 // 外部依赖 (pci 读写)
 extern uint32_t pci_read_dword(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
@@ -154,6 +158,7 @@ static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs) {
     // --- 6. 获取通知信息 ---
     q->queue_notify_off = virtio_read_cap_16(common_cfg_ptr, 0x1E /* queue_notify_off */);
     q->mmio_base_ptr = notify_cfg_ptr;
+    q->notify_off_multiplier = virtio_notify_multiplier; 
 
     tty_print("VirtIO: Successfully allocated Queue #", 0x00FF00); print_hex(q_idx, 0x00FF00); tty_print("\n", 0x00FF00);
     return q;
@@ -166,42 +171,59 @@ static void virtq_free(struct virtq* q) {
 
 // virtq_add_buf (添加缓冲区到队列)
 static int virtq_add_buf(struct virtq* q, void* buf, uint32_t len, uint16_t flags) {
-    if (q->free_head == q->num) return -1; // 队列满
+    // --- 1. 从空闲链表中获取一个描述符 ---
+    uint16_t head_idx = q->free_head;
 
-    uint16_t head = q->free_head;
-    q->free_head = q->desc[head].next; // 更新空闲链表头
+    // --- 2. 填充描述符 ---
+    struct virtq_desc* desc = &q->desc[head_idx];
+    desc->addr = (uint64_t)buf;
+    desc->len = len;
+    desc->flags = flags;
 
-    q->desc[head].addr = (uint64_t)buf;
-    q->desc[head].len = len;
-    q->desc[head].flags = flags;
-    q->desc[head].next = 0; // 确保不链到下一个，除非显式设置
+    // --- 3. 更新空闲链表头，指向下一个空闲描述符 ---
+    q->free_head = desc->next;
 
-    // 将描述符添加到可用环
-    q->avail->ring[q->avail->idx % q->num] = head;
+    // --- 4. 将这个描述符的索引添加到可用环中 ---
+    q->avail->ring[q->avail->idx % q->num] = head_idx;
     
-    // 增加可用环索引
-    // 必须是原子操作，但在此简化
+    // --- 5. 增加可用环的索引，让设备看到这个新添加的条目 ---
     q->avail->idx++;
 
     return 0;
 }
 
 // virtq_kick (通知设备)
+// static void virtq_kick(struct virtq* q) {
+//     // 确保 MMIO 基地址和 notify 偏移都有效
+//     if (!q->mmio_base_ptr || q->queue_notify_off == 0xFFFF) return; // 0xFFFF 是默认的无效通知偏移
+//     // if (!notify_cfg_ptr) return;
+
+//     // 写入 Queue Notify 寄存器，通知设备指定队列有新数据
+//     // 地址是 virtio_net_mmio_base + notify_cap_offset + queue_notify_off
+//     *(volatile uint16_t*)(q->mmio_base_ptr + q->queue_notify_off) = q->queue_notify_off;
+//     // OSDev 建议写入的是队列索引本身
+//     // *(volatile uint16_t*)(q->mmio_base_ptr + q->queue_notify_off) = q->queue_notify_off; 
+//     // 更标准的方式是写入队列号：
+//     // *(volatile uint16_t*)(q->mmio_base_ptr + virtio_read_cap_32(notify_cfg_ptr, 0) + q->queue_notify_off) = q->queue_idx; (requires queue_idx in virtq)
+
+//     virtio_write_cap_16(notify_cfg_ptr, q->queue_notify_off, q->queue_idx); // q->num (queue_idx)
+// };
+
 static void virtq_kick(struct virtq* q) {
-    // 确保 MMIO 基地址和 notify 偏移都有效
-    if (!q->mmio_base_ptr || q->queue_notify_off == 0xFFFF) return; // 0xFFFF 是默认的无效通知偏移
-    // if (!notify_cfg_ptr) return;
+    // --- 核心修正：使用乘数计算正确的字节偏移量 ---
+    uint32_t final_byte_offset = q->queue_notify_off * q->notify_off_multiplier;
 
-    // 写入 Queue Notify 寄存器，通知设备指定队列有新数据
-    // 地址是 virtio_net_mmio_base + notify_cap_offset + queue_notify_off
-    *(volatile uint16_t*)(q->mmio_base_ptr + q->queue_notify_off) = q->queue_notify_off;
-    // OSDev 建议写入的是队列索引本身
-    // *(volatile uint16_t*)(q->mmio_base_ptr + q->queue_notify_off) = q->queue_notify_off; 
-    // 更标准的方式是写入队列号：
-    // *(volatile uint16_t*)(q->mmio_base_ptr + virtio_read_cap_32(notify_cfg_ptr, 0) + q->queue_notify_off) = q->queue_idx; (requires queue_idx in virtq)
-
-    virtio_write_cap_16(notify_cfg_ptr, q->queue_notify_off, q->queue_idx); // q->num (queue_idx)
+    // (可以保留之前的日志用于验证)
+    tty_print("VirtIO Kick: Notifying Queue #", 0x00FFFF);
+    print_hex(q->queue_idx, 0x00FFFF);
+    tty_print(" at MMIO address 0x", 0x00FFFF);
+    print_hex((uint64_t)(q->mmio_base_ptr + final_byte_offset), 0x00FFFF);
+    tty_print("\n", 0x00FFFF);
+    
+    // 向正确计算出的地址写入队列索引
+    virtio_write_cap_16(notify_cfg_ptr, final_byte_offset, q->queue_idx);
 };
+
 
 static inline void io_delay_us(uint32_t us) {
     // 经验值：QEMU/KVM环境下约3000次循环=1ms
@@ -266,7 +288,13 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
 
                 switch (cfg_type) {
                     case VIRTIO_PCI_CAP_COMMON_CFG: tty_print("  Found Common Cfg @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); common_cfg_ptr = base_ptr_for_cap; break;
-                    case VIRTIO_PCI_CAP_NOTIFY_CFG: tty_print("  Found Notify Cfg @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); notify_cfg_ptr = base_ptr_for_cap; break;
+                    case VIRTIO_PCI_CAP_NOTIFY_CFG:
+                        tty_print("  Found Notify Cfg @ 0x", 0xFFFFFF);
+                        print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF);
+                        tty_print("\n", 0x00FFFF); 
+                        notify_cfg_ptr = base_ptr_for_cap;
+                        virtio_notify_multiplier = pci_read_dword(pci_bus, pci_device, pci_function, cap_ptr_offset + 16);
+                    break;  
                     case VIRTIO_PCI_CAP_ISR_CFG:    tty_print("  Found ISR Cfg @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); isr_cfg_ptr = base_ptr_for_cap; break;
                     case VIRTIO_PCI_CAP_DEVICE_CFG: tty_print("  Found Device Cfg @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); device_cfg_ptr = base_ptr_for_cap; break;
                     case VIRTIO_PCI_CAP_PCI_CFG:    tty_print("  Found PCI Cfg @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); pci_cfg_ptr = base_ptr_for_cap; break;
@@ -394,7 +422,19 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
     print_hex(virtio_read_cap_8(common_cfg_ptr, 0x14), 0x00FF00); 
     tty_print("\n", 0x00FF00);
 
+    // 12. 读取并保存 IRQ 中断号
+    // PCI 配置空间的 0x3C 偏移量是 Interrupt Line 寄存器
+    uint32_t pci_irq_pin = pci_read_dword(pci_bus, pci_device, pci_function, 0x3C);
+    virtio_net_irq = (uint8_t)(pci_irq_pin & 0xFF);
+    tty_print("VirtIO: IRQ Line = ", 0xFFFFFF); 
+    print_hex(virtio_net_irq, 0xFFFFFF);
+    tty_print("\n", 0xFFFFFF);
+
     tty_print("VirtIO Net initialized successfully!\n", 0x00FF00);
+
+    pic_unmask_irq(virtio_net_irq);
+    tty_print("VirtIO: Unmasked IRQ ", 0xFFFFFF); print_hex(virtio_net_irq, 0xFFFFFF); tty_print(" in PIC.\n", 0xFFFFFF);
+
 }
 
 // 获取 MAC 地址
@@ -404,81 +444,146 @@ const uint8_t* virtio_net_get_mac_address() {
 
 // 发送数据包
 bool virtio_net_send_packet(const uint8_t* data, uint16_t len) {
-    if (len == 0 || len > 1514) { // 以太网最大帧长 1514 (含 CRC)
-        tty_print("VirtIO TX: Invalid packet length (0 or >1514).\n", 0xFF0000);
+    if (len == 0 || len > 1514) {
         return false;
     }
 
-    // VirtIO Net Spec: 一个以太网帧需要 10 字节的 virtio_net_hdr
-    // 我们将数据包和包头放在同一个缓冲区里
-    uint8_t* tx_buffer = tx_q->buffers[tx_q->free_head]; // 获取下一个空闲缓冲区
+    // 1. **核心修正**：为这次发送动态分配一个缓冲区。
+    //    这个缓冲区需要包含 VirtIO Net Header (10 bytes) 和数据包本身。
+    uint16_t total_len = 10 + len;
+    uint8_t* tx_buffer = (uint8_t*)pmm_alloc_page(); // 或者用 kmalloc(total_len)
     if (!tx_buffer) {
-        tty_print("VirtIO TX: No free buffer for header!\n", 0xFF0000);
+        tty_print("VirtIO TX: Failed to allocate buffer for sending!\n", 0xFF0000);
         return false;
     }
     
-    // 清零 virtio_net_hdr (目前全0，不使用复杂特性)
-    memset(tx_buffer, 0, 10); 
+    // 2. 准备缓冲区内容
+    memset(tx_buffer, 0, 10); // 清零 virtio_net_hdr
+    memcpy(tx_buffer + 10, data, len); // 拷贝用户数据
 
-    // 拷贝实际数据到缓冲区 (跳过 10 字节的包头)
-    memcpy(tx_buffer + 10, data, len);
+    // 3. 将这个**新分配的**缓冲区添加到发送队列
+    //    这里的 flags 必须是 0 (设备只读)
+    if (virtq_add_buf(tx_q, tx_buffer, total_len, 0) != 0) {
+        tty_print("VirtIO TX: Failed to add buffer to virtqueue. Queue full?\n", 0xFF0000);
+        pmm_free_page(tx_buffer); // 释放我们分配的内存
+        return false;
+    }
 
-    // 将缓冲区添加到发送队列
-    // flags: 0 (设备只读，因为驱动程序正在提供数据)
-    virtq_add_buf(tx_q, tx_buffer, len + 10, 0); 
+    // 4. 通知设备
+    virtq_kick(tx_q);
 
-    virtq_kick(tx_q); // 通知设备
+    // **重要**：这个 tx_buffer 现在由设备拥有。我们必须在中断处理函数中，
+    // 当设备确认发送完成后，再调用 pmm_free_page(tx_buffer) 来释放它。
+    // 这需要在 virtq_desc 和中断处理中添加一些逻辑来跟踪和释放它。
+    
+    // 为了简化第一次测试，我们可以暂时“泄露”这块内存，以后再来完善释放逻辑。
 
     tty_print("VirtIO: Packet sent. Len=", 0x00FF00); print_hex(len, 0x00FF00); tty_print("\n", 0x00FF00);
     return true;
 }
 
-// 处理 VirtIO 网卡中断
-void virtio_net_handle_interrupt() {
-    // 读取 ISR 状态寄存器 (会清除中断)
-    uint8_t isr_status = virtio_read_cap_8(isr_cfg_ptr, 0);
-    
-    if (isr_status == 0) return; // 没有中断发生
 
-    if (isr_status & 0x01) { // Queue interrupt (Bit 0)
-        // 检查 TX 队列是否有已完成的包
-        while (tx_q->used->idx != tx_q->used_idx) {
+// 处理 VirtIO 网卡中断
+// void virtio_net_handle_interrupt() {
+//     // 读取 ISR 状态寄存器 (会清除中断)
+//     uint8_t isr_status = virtio_read_cap_8(isr_cfg_ptr, 0);
+//     tty_print("\n--- VirtIO IRQ HIT! ---\n", 0xFFFF00);
+//     tty_print("  ISR Status Register: 0b", 0xFFFFFF);
+//     for (int i = 7; i >= 0; i--) { tty_print((isr_status & (1 << i)) ? "1" : "0", 0xFFFFFF); }
+//     tty_print("\n", 0xFFFFFF);
+    
+//     if (isr_status == 0) return; // 没有中断发生
+
+//     if (isr_status & 0x01) { // VIRTIO_PCI_ISR_QUEUE
+//         // 3. 在处理任何事情之前，先打印两个队列的“设备索引”
+//         uint16_t tx_device_idx = tx_q->used->idx;
+//         uint16_t rx_device_idx = rx_q->used->idx;
+//         tty_print("  Device state before processing:\n", 0xFFFFFF);
+//         tty_print("    TX used->idx: ", 0xFFFFFF); print_hex(tx_device_idx, 0xFFFFFF); 
+//         tty_print(" (Driver expects: ", 0xFFFFFF); print_hex(tx_q->used_idx, 0xFFFFFF); tty_print(")\n", 0xFFFFFF);
+//         tty_print("    RX used->idx: ", 0xFFFFFF); print_hex(rx_device_idx, 0xFFFFFF);
+//         tty_print(" (Driver expects: ", 0xFFFFFF); print_hex(rx_q->used_idx, 0xFFFFFF); tty_print(")\n", 0xFFFFFF);
+//         }
+
+//         // 检查 RX 队列是否有新收到的包
+//         while (rx_q->used->idx != rx_q->used_idx) {
+//             struct virtq_used_elem* used_elem = &rx_q->used->ring[rx_q->used_idx % rx_q->num];
+//             uint16_t desc_idx = used_elem->id;
+//             uint32_t len = used_elem->len;
+//             uint8_t* packet_data = rx_q->buffers[desc_idx];
+
+//             tty_print("VirtIO: RX packet received. Len=", 0x00FFFF); print_hex(len, 0x00FFFF); tty_print("\n", 0x00FFFF);
+            
+//             // 数据包在这里：packet_data (跳过前10字节的 virtio_net_hdr)
+//             // EtherType 在 packet_data + 10 + 12 (以太网头的 EtherType 偏移)
+//             uint16_t eth_type = (packet_data[10 + 12] << 8) | packet_data[10 + 13];
+//             tty_print("  EtherType: 0x", 0xFFFFFF); print_hex(eth_type, 0x00FF00); tty_print("\n", 0x00FF00);
+
+//             if (eth_type == 0x0806) { // ARP 协议
+//                 tty_print("  ARP Packet Detected!\n", 0x00FF00);
+//             } else if (eth_type == 0x0800) { // IPv4 协议
+//                 tty_print("  IPv4 Packet Detected!\n", 0x00FF00);
+//             } else {
+//                 tty_print("  Unknown EtherType.\n", 0xFF6060);
+//             }
+            
+//             // 重新将缓冲区添加到接收队列
+//             // 标记为设备写入 (VIRTQ_DESC_F_WRITE)
+//             virtq_add_buf(rx_q, rx_q->buffers[desc_idx], PAGE_SIZE, VIRTQ_DESC_F_WRITE); 
+//             rx_q->used_idx++;
+//         }
+//     }
+// }
+void virtio_net_handle_interrupt() {
+    // 1. 读取并立即打印 ISR 状态寄存器 (这会清除设备的中断状态)
+    uint8_t isr_status = virtio_read_cap_8(isr_cfg_ptr, 0);
+    tty_print("\n--- VirtIO IRQ HIT! ---\n", 0xFFFF00);
+    tty_print("  ISR Status Register: 0b", 0xFFFFFF);
+    for (int i = 7; i >= 0; i--) { tty_print((isr_status & (1 << i)) ? "1" : "0", 0xFFFFFF); }
+    tty_print("\n", 0xFFFFFF);
+
+    // 2. 只有在“队列更新”位被设置时才继续
+    if (isr_status & 0x01) { // VIRTIO_PCI_ISR_QUEUE
+        // 3. 在处理任何事情之前，先打印两个队列的“设备索引”
+        uint16_t tx_device_idx = tx_q->used->idx;
+        uint16_t rx_device_idx = rx_q->used->idx;
+        tty_print("  Device state before processing:\n", 0xFFFFFF);
+        tty_print("    TX used->idx: ", 0xFFFFFF); print_hex(tx_device_idx, 0xFFFFFF); 
+        tty_print(" (Driver expects: ", 0xFFFFFF); print_hex(tx_q->used_idx, 0xFFFFFF); tty_print(")\n", 0xFFFFFF);
+        tty_print("    RX used->idx: ", 0xFFFFFF); print_hex(rx_device_idx, 0xFFFFFF);
+        tty_print(" (Driver expects: ", 0xFFFFFF); print_hex(rx_q->used_idx, 0xFFFFFF); tty_print(")\n", 0xFFFFFF);
+
+        // 4. 处理发送完成的队列 (TX)
+        while (tx_q->used_idx != tx_device_idx) {
             struct virtq_used_elem* used_elem = &tx_q->used->ring[tx_q->used_idx % tx_q->num];
             uint16_t desc_idx = used_elem->id;
             
-            // 标记描述符空闲并重新添加到空闲链表
-            tx_q->desc[desc_idx].flags = 0; // 清除所有标志
+            tty_print("  > VirtIO: TX packet acknowledged. Desc=", 0x00FF00); print_hex(desc_idx, 0x00FF00); tty_print("\n", 0x00FF00);
+            
+            // 重要：在这里释放为发送而分配的缓冲区
+            // pmm_free_page( (void*)tx_q->desc[desc_idx].addr ); // 暂缓实现
+
+            // 将描述符重新加入空闲链表
             tx_q->desc[desc_idx].next = tx_q->free_head;
             tx_q->free_head = desc_idx;
             tx_q->used_idx++;
-            tty_print("VirtIO: TX packet acknowledged. Desc=", 0x00FF00); print_hex(desc_idx, 0x00FF00); tty_print("\n", 0x00FF00);
         }
 
-        // 检查 RX 队列是否有新收到的包
-        while (rx_q->used->idx != rx_q->used_idx) {
+        // 5. 处理已接收数据的队列 (RX)
+        while (rx_q->used_idx != rx_device_idx) {
             struct virtq_used_elem* used_elem = &rx_q->used->ring[rx_q->used_idx % rx_q->num];
             uint16_t desc_idx = used_elem->id;
             uint32_t len = used_elem->len;
             uint8_t* packet_data = rx_q->buffers[desc_idx];
-
-            tty_print("VirtIO: RX packet received. Len=", 0x00FFFF); print_hex(len, 0x00FFFF); tty_print("\n", 0x00FFFF);
             
-            // 数据包在这里：packet_data (跳过前10字节的 virtio_net_hdr)
-            // EtherType 在 packet_data + 10 + 12 (以太网头的 EtherType 偏移)
-            uint16_t eth_type = (packet_data[10 + 12] << 8) | packet_data[10 + 13];
+            tty_print("  > VirtIO: RX packet received! Desc=", 0x00FFFF); print_hex(desc_idx, 0x00FFFF); 
+            tty_print(" Len=", 0x00FFFF); print_hex(len, 0x00FFFF); tty_print("\n", 0x00FFFF);
+
+            int16_t eth_type = (packet_data[10 + 12] << 8) | packet_data[10 + 13];
             tty_print("  EtherType: 0x", 0xFFFFFF); print_hex(eth_type, 0x00FF00); tty_print("\n", 0x00FF00);
-
-            if (eth_type == 0x0806) { // ARP 协议
-                tty_print("  ARP Packet Detected!\n", 0x00FF00);
-            } else if (eth_type == 0x0800) { // IPv4 协议
-                tty_print("  IPv4 Packet Detected!\n", 0x00FF00);
-            } else {
-                tty_print("  Unknown EtherType.\n", 0xFF6060);
-            }
             
-            // 重新将缓冲区添加到接收队列
-            // 标记为设备写入 (VIRTQ_DESC_F_WRITE)
-            virtq_add_buf(rx_q, rx_q->buffers[desc_idx], PAGE_SIZE, VIRTQ_DESC_F_WRITE); 
+            // 将这个刚刚用完的缓冲区，重新放回接收队列，以便接收下一个包
+            virtq_add_buf(rx_q, rx_q->buffers[desc_idx], PAGE_SIZE, VIRTQ_DESC_F_WRITE);
             rx_q->used_idx++;
         }
     }

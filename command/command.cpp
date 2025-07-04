@@ -6,9 +6,9 @@
 #include "kernel/mem/pmm.h"
 #include "kernel/cpu/cpuinfo.h"
 #include "kernel/drivers/rtc.h"
-#include "kernel/drivers/ethernet/e1000.h"
+#include "kernel/drivers/ethernet/virtio_net.h"
 
-#define COMMAND_VERSION "1.10.0-dirty+"
+#define COMMAND_VERSION "1.11.0-dirty+"
 
 // 外部 print 函数
 extern void print(const char* str, uint32_t color);
@@ -184,60 +184,52 @@ void cmd_memtest() {
     tty_print("\nMemtest Finish", 0x00FF00);
 }
 
-void cmd_nettest() {
-    tty_print("\n--- Network Test ---\n", 0x00FFFF);
+void cmd_nettest_virtio() { // 为了区分，我们可以重命名一下
+    tty_print("\n--- VirtIO Network Test ---\n", 0x00FFFF);
 
-    // 打印 MAC 地址 (如果需要再次确认)
-    tty_print("E1000 MAC: ", 0xFFFFFF);
-    const uint8_t* mac = e1000_get_mac_address();
+    // 1. 获取 VirtIO 网卡的 MAC 地址
+    const uint8_t* mac = virtio_net_get_mac_address();
+    if (mac[0] == 0 && mac[1] == 0 && mac[2] == 0) { // 简单检查 MAC 是否有效
+        tty_print("VirtIO MAC address is not set. Aborting test.\n", 0xFF0000);
+        return;
+    }
+    tty_print("VirtIO MAC: ", 0xFFFFFF);
     for (int i = 0; i < 6; i++) {
         print_hex(mac[i], 0x00FF00);
         if (i < 5) tty_print(":", 0x00FF00);
     }
     tty_print("\n", 0x00FF00);
 
-    // 构建一个简单的 ARP 请求包
-    // 参考: https://en.wikipedia.org/wiki/Address_Resolution_Protocol#Packet_structure
-    uint8_t arp_packet[60] = {0}; // ARP 帧最小长度 42 + 以太网头 14 = 56，我们用 60
+    // 2. 构造一个标准的 ARP 请求包 (这部分逻辑完全不变，非常棒)
+    uint8_t arp_packet[60] = {0}; // 以太网帧最小长度是 60 字节 (不含 CRC)
 
     // 以太网头 (14 bytes)
-    // 目的 MAC 地址 (6 bytes): 广播 (FF:FF:FF:FF:FF:FF)
-    arp_packet[0] = 0xFF; arp_packet[1] = 0xFF; arp_packet[2] = 0xFF;
-    arp_packet[3] = 0xFF; arp_packet[4] = 0xFF; arp_packet[5] = 0xFF;
-    // 源 MAC 地址 (6 bytes): 我们的网卡 MAC
-    memcpy(arp_packet + 6, mac, 6);
-    // EtherType (2 bytes): ARP (0x0806)
-    arp_packet[12] = 0x08; arp_packet[13] = 0x06;
+    memset(arp_packet, 0xFF, 6);         // 目的 MAC: 广播
+    memcpy(arp_packet + 6, mac, 6);      // 源 MAC:   我们的 MAC
+    arp_packet[12] = 0x08; arp_packet[13] = 0x06; // EtherType: ARP
 
     // ARP 协议部分 (从第 14 字节开始)
-    // 硬件类型 (2 bytes): 以太网 (0x0001)
-    arp_packet[14] = 0x00; arp_packet[15] = 0x01;
-    // 协议类型 (2 bytes): IPv4 (0x0800)
-    arp_packet[16] = 0x08; arp_packet[17] = 0x00;
-    // 硬件地址长度 (1 byte): MAC 地址 (6)
-    arp_packet[18] = 0x06;
-    // 协议地址长度 (1 byte): IPv4 地址 (4)
-    arp_packet[19] = 0x04;
-    // 操作码 (2 bytes): 请求 (0x0001)
-    arp_packet[20] = 0x00; arp_packet[21] = 0x01;
-    // 发送方 MAC (6 bytes): 我们的 MAC
-    memcpy(arp_packet + 22, mac, 6);
-    // 发送方 IP (4 bytes): 我们的 IP (假设 10.0.2.15)
-    arp_packet[28] = 10; arp_packet[29] = 0; arp_packet[30] = 2; arp_packet[31] = 15;
-    // 目标 MAC (6 bytes): 全 0 (未知)
-    arp_packet[32] = 0x00; arp_packet[33] = 0x00; arp_packet[34] = 0x00;
-    arp_packet[35] = 0x00; arp_packet[36] = 0x00; arp_packet[37] = 0x00;
-    // 目标 IP (4 bytes): 默认网关 IP (QEMU 的 10.0.2.2)
-    arp_packet[38] = 10; arp_packet[39] = 0; arp_packet[40] = 2; arp_packet[41] = 2;
+    arp_packet[14] = 0x00; arp_packet[15] = 0x01; // 硬件类型: 以太网
+    arp_packet[16] = 0x08; arp_packet[17] = 0x00; // 协议类型: IPv4
+    arp_packet[18] = 0x06;                       // 硬件地址长度: 6
+    arp_packet[19] = 0x04;                       // 协议地址长度: 4
+    arp_packet[20] = 0x00; arp_packet[21] = 0x01; // 操作码: 请求
+    memcpy(arp_packet + 22, mac, 6);             // 发送方 MAC: 我们的 MAC
+    arp_packet[28] = 10; arp_packet[29] = 0;    // 发送方 IP: 10.0.2.15 (QEMU 默认)
+    arp_packet[30] = 2; arp_packet[31] = 15;
+    memset(arp_packet + 32, 0, 6);               // 目标 MAC: 全 0 (未知)
+    arp_packet[38] = 10; arp_packet[39] = 0;    // 目标 IP: 10.0.2.2 (QEMU 网关)
+    arp_packet[40] = 2; arp_packet[41] = 2;
 
-    // 发送包
-    if (e1000_send_packet(arp_packet, sizeof(arp_packet))) {
-        tty_print("ARP Request sent to 10.0.2.2\n", 0x00FF00);
+    // 3. 发送数据包
+    // 注意：以太网帧的最小长度是 60 字节。如果数据包小于这个长度，
+    // 驱动或硬件会自动填充。我们直接发送 60 字节是最安全的。
+    if (virtio_net_send_packet(arp_packet, 60)) {
+        tty_print("ARP Request sent to 10.0.2.2 via VirtIO.\n", 0x00FF00);
     } else {
-        tty_print("Failed to send ARP Request.\n", 0xFF0000);
+        tty_print("Failed to send ARP Request via VirtIO.\n", 0xFF0000);
     }
 }
-
 
 // --- version 命令 ---
 void cmd_version() {
@@ -303,7 +295,7 @@ void execute_command(const char* command) {
     } else if (strcmp(command, "memtest") == 0) {
         cmd_memtest();
     } else if (strcmp(command, "nettest") == 0) {
-        cmd_nettest();
+        cmd_nettest_virtio();
     } else {
         print("\nUnknown command: ", 0xFF6060);
         print(command, 0xFF6060);

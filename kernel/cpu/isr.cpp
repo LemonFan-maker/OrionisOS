@@ -7,6 +7,7 @@
 #include "ports.h"
 #include "kernel/panic.h"
 #include "kernel/drivers/ethernet/e1000.h"
+#include "kernel/drivers/ethernet/virtio_net.h"
 
 // 外部声明：从 tty.h 中获取
 extern void print_hex(uint64_t value, uint32_t color);
@@ -18,12 +19,7 @@ static uint64_t tick = 0;
 // isr_handler 不直接调用 isrXX，所以这里不需要声明它们。
 // 它只关心 regs->int_no。
 
-// 外部声明：E1000 中断处理函数
-// void e1000_handle_interrupt(); 已经通过 #include "e1000.h" 声明了
-
 extern "C" void isr_handler(registers_t* regs) {
-    // 移除 isr42() 内部声明
-    // void isr42(); // <--- 删除这一行    
     // --- 1. 处理 CPU 异常 (0-31) ---
     if (regs->int_no < 32) {
         if (regs->int_no == 3) { // Breakpoint
@@ -55,6 +51,10 @@ extern "C" void isr_handler(registers_t* regs) {
             tty_print("INT: ", 0xFFFFFF); print_hex(regs->int_no, 0xFFFFFF); tty_print("\n", 0xFFFFFF);
             tty_print("E1000 Interrupt hit! Calling handler.\n", 0xFF00FF);
             e1000_handle_interrupt(); // <--- 这是对 e1000.h 中声明函数的调用
+        } 
+        else if (regs->int_no == 43) {
+            // VirtIO 中断处理函数内部会读取并清除中断状态，非常干净
+            virtio_net_handle_interrupt(); 
         }
         // 如果是其他 IRQ，可以打印未知 IRQ 信息
         else {
