@@ -12,6 +12,7 @@
 #include "kernel/drivers/ata/ata.h"
 #include "cpu/pci.h"
 #include "kernel/drivers/ethernet/e1000.h"
+#include "kernel/drivers/ethernet/virtio_net.h"
 
 // --- 版本号 ---
 const char* KERNEL_VERSION = "1.4.0-dirty+";
@@ -110,11 +111,14 @@ void print(const char* str, uint32_t color) {
 }
 
 void my_pci_device_callback(uint8_t bus, uint8_t device, uint8_t function, uint16_t vendor_id, uint16_t device_id) {
-    // 可以在这里根据 vendor_id 和 device_id 识别特定设备
-    // 例如，Intel E1000 网卡有特定的 Vendor ID 和 Device ID
     if (vendor_id == 0x8086 && (device_id == 0x100E || device_id == 0x100F || device_id == 0x10D3)) {
-        tty_print("  Found Intel E1000 Network Card!\n", 0x00FF00);
-        e1000_init(bus, device, function); // <--- 初始化 E1000
+        // 这段 E1000 的代码现在可以删除了，或者留着以防万一
+        tty_print("  Found Intel E1000 Network Card! (Old)\n", 0x0A);
+    }
+    // --- 新增：识别 VirtIO 网卡 ---
+    if (vendor_id == 0x1AF4 && (device_id == 0x1000 || device_id == 0x1041)) {
+        tty_print("  Found VirtIO Network Card!\n", 0x00FF00); // 绿色
+        virtio_net_init(bus, device, function); // <--- 调用 VirtIO 网卡初始化
     }
 }
 
