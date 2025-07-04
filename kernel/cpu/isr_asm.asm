@@ -104,3 +104,4 @@ ISR_NO_ERR_CODE 31
 ISR_NO_ERR_CODE 32  ; IRQ0: Programmable Interval Timer
 ISR_NO_ERR_CODE 33 ; IRQ1: Keyboard
 ISR_NO_ERR_CODE 42  ; IRQ10: E1000 Network Card
+ISR_NO_ERR_CODE 43  ; IRQ11: VirtIO Network Card

@@ -173,7 +173,8 @@ extern "C" void kmain(struct stivale_struct *stivale_struct) {
     // 初始化 Keyboard
     print("Initializing Keyboard...", white);
     init_keyboard();
-    pic_unmask_irq(1); // <--- 核心修改：开启键盘中断 (IRQ 1)
+    pic_unmask_irq(1);
+    pic_unmask_irq(2);
     print("\nKeyboard ready.\n", green);
 
     pic_unmask_irq(10);
@@ -208,16 +209,12 @@ extern "C" void kmain(struct stivale_struct *stivale_struct) {
     print("[System ready.]\n", blue);
 
     init_shell();
+
+    pic_dump_masks();
     
     bool last_cursor_state = !cursor_visible; // 强制第一次循环时重绘
 
      for (;;) {
-        // 只有当光标的“可见”状态发生变化时，才进行重绘
-        // if (last_cursor_state != cursor_visible) {
-        //     uint32_t cursor_color = cursor_visible ? 0xFFFFFF : current_bg_color;
-        //     draw_rect(cursor_x, cursor_y, 9, 16, cursor_color);
-        //     last_cursor_state = cursor_visible;
-        // }
         asm ("hlt"); // 等待下一次中断
     }
 }

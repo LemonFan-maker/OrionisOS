@@ -13,7 +13,7 @@ extern "C" {
     void isr20(); void isr21(); void isr22(); void isr23();
     void isr24(); void isr25(); void isr26(); void isr27();
     void isr28(); void isr29(); void isr30(); void isr31();
-    void isr32(); void isr33(); void isr42(); 
+    void isr32(); void isr33(); void isr42(); void isr43();
 }
 
 // 定义 IDT 数组和指针
@@ -73,6 +73,7 @@ void init_idt() {
     idt_set_gate(32, (uint64_t)isr32, 0x08, 0x8E);
     idt_set_gate(33, (uint64_t)isr33, 0x08, 0x8E);
     idt_set_gate(42, (uint64_t)isr42, 0x08, 0x8E); // E1000
+    idt_set_gate(43, (uint64_t)isr43, 0x08, 0x8E); // VirtIO
 
     // 加载 IDT
     idt_load((uint64_t)&idt_ptr);
