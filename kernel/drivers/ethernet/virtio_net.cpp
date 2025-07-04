@@ -4,10 +4,6 @@
 #include "kernel/mem/pmm.h"
 #include "lib/libc.h"
 
-#define VIRTQ_DESC_F_NEXT       1 // Chained to next descriptor
-#define VIRTQ_DESC_F_WRITE      2 // Device writes to this descriptor (device-writable)
-#define VIRTQ_DESC_F_INDIRECT   4 // Indirect descriptor table
-
 // 外部依赖 (pci 读写)
 extern uint32_t pci_read_dword(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
 extern void pci_write_dword(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset, uint32_t value);
@@ -21,7 +17,7 @@ static uint64_t virtio_read_config_64(uint8_t cap_type, uint8_t offset) { /* ...
 static void virtio_write_config_64(uint8_t cap_type, uint8_t offset, uint64_t val) { /* ... */ }
 
 // Virtqueue helper functions
-static struct virtq* virtq_alloc(uint16_t queue_idx, uint16_t num_descs);
+static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs);
 static void virtq_free(struct virtq* q);
 static int virtq_add_buf(struct virtq* q, void* buf, uint32_t len, uint16_t flags);
 static void virtq_kick(struct virtq* q);
@@ -71,13 +67,14 @@ static void virtio_write_cap_64(volatile uint8_t* cap_base_ptr, uint32_t offset_
 // Virtqueue 实现
 // ==========================================================================
 // virtq_alloc 
-static struct virtq* virtq_alloc(uint16_t queue_idx, uint16_t num_descs) {
+static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs) {
     struct virtq* q = (struct virtq*)pmm_alloc_page(); // 描述符环，可用环，已用环在同一页
     if (!q) return nullptr;
     
     memset(q, 0, PAGE_SIZE); // 清零整页
 
     q->num = num_descs;
+    q->queue_idx = q_idx; 
     q->desc = (struct virtq_desc*)((uintptr_t)q);
     // 可用环紧跟在描述符表之后
     q->avail = (struct virtq_avail*)((uintptr_t)q->desc + num_descs * sizeof(struct virtq_desc));
@@ -96,7 +93,7 @@ static struct virtq* virtq_alloc(uint16_t queue_idx, uint16_t num_descs) {
     // 是通过 common config 中的 QueueDesc/Avail/Used 寄存器设置物理地址
     // 这里我们已经通过 virtio_write_cap_64 完成了物理地址设置。
     // 这里主要是选择队列号
-    virtio_write_cap_16(common_cfg_ptr, 0x0E, queue_idx); // Queue select
+    virtio_write_cap_16(common_cfg_ptr, 0x0E, q_idx); // Queue select
     
     // 通知设备队列大小 (Common Config: Queue Size 0x08)
     virtio_write_cap_16(common_cfg_ptr, 0x08, num_descs); 
@@ -151,7 +148,8 @@ static int virtq_add_buf(struct virtq* q, void* buf, uint32_t len, uint16_t flag
 // virtq_kick (通知设备)
 static void virtq_kick(struct virtq* q) {
     // 确保 MMIO 基地址和 notify 偏移都有效
-    if (!q->mmio_base_ptr || q->queue_notify_off == 0xFFFF) return; // 0xFFFF 是默认的无效通知偏移
+    // if (!q->mmio_base_ptr || q->queue_notify_off == 0xFFFF) return; // 0xFFFF 是默认的无效通知偏移
+    if (!notify_cfg_ptr) return;
 
     // 写入 Queue Notify 寄存器，通知设备指定队列有新数据
     // 地址是 virtio_net_mmio_base + notify_cap_offset + queue_notify_off
@@ -177,6 +175,7 @@ static void virtq_kick(struct virtq* q) {
     
     // OSDev: device_notify(uint16_t queue_id) -> *(volatile uint16_t*)(notify_base + offset + (queue_id * multiplier)) = queue_id
     // For now, let's just write queue_idx.
+
     virtio_write_cap_16(notify_cfg_ptr, q->queue_notify_off, q->num); // q->num (queue_idx)
 }
 
@@ -274,7 +273,7 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
         memset(rx_q->buffers[i], 0, 10); // 清零包头
 
         // VIRTQ_DESC_F_WRITE: 设备会写入此描述符 (接收)
-        virtq_add_buf(rx_q, rx_q->buffers[i], PAGE_SIZE, VIRTIO_DESC_F_WRITE); 
+        virtq_add_buf(rx_q, rx_q->buffers[i], PAGE_SIZE, VIRTQ_DESC_F_WRITE); 
     }
     virtq_kick(rx_q); // 通知设备有空闲缓冲区
 
@@ -365,7 +364,7 @@ void virtio_net_handle_interrupt() {
             
             // 重新将缓冲区添加到接收队列
             // 标记为设备写入 (VIRTQ_DESC_F_WRITE)
-            virtq_add_buf(rx_q, rx_q->buffers[desc_idx], PAGE_SIZE, VIRTIO_DESC_F_WRITE); 
+            virtq_add_buf(rx_q, rx_q->buffers[desc_idx], PAGE_SIZE, VIRTQ_DESC_F_WRITE); 
             rx_q->used_idx++;
         }
     }

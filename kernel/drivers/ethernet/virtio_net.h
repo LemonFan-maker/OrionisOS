@@ -21,7 +21,12 @@
 // VirtIO NET 设备特性 (Feature Bits)
 #define VIRTIO_NET_F_CSUM      (1 << 0) // Host can do checksums in hardware.
 #define VIRTIO_NET_F_MAC       (1 << 5) // Device has given MAC address.
-// ... 更多特性 ...
+#define NUM_RX_DESC 32
+#define NUM_TX_DESC 32
+
+#define VIRTQ_DESC_F_NEXT       1 // Chained to next descriptor
+#define VIRTQ_DESC_F_WRITE      2 // Device writes to this descriptor (device-writable)
+#define VIRTQ_DESC_F_INDIRECT   4 // Indirect descriptor table
 
 // VirtIO 描述符 (Descriptor)
 struct virtq_desc {
@@ -55,12 +60,13 @@ struct virtq {
     struct virtq_avail *avail;
     struct virtq_used  *used;
     uint16_t num;
+    uint16_t queue_idx;
     uint16_t free_head;
     uint8_t *buffers[0];
-    // --- 新增：用于通知设备的 MMIO 地址和偏移 ---
     volatile uint8_t* mmio_base_ptr;
     uint32_t queue_notify_off;
-    uint16_t notify_cap_idx;
+    // --- 新增：用于跟踪已用环进度 ---
+    uint16_t used_idx; 
 };
 
 // 初始化 virtio 网卡
