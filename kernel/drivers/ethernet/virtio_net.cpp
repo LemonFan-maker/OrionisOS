@@ -133,7 +133,7 @@ static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs) {
     q->queue_notify_off = virtio_read_cap_16(common_cfg_ptr, 0x1E /* queue_notify_off */);
     
     // 6. 启用队列
-    virtio_write_cap_16(common_cfg_ptr, 0x1C /* queue_enable */, 1);
+    // virtio_write_cap_16(common_cfg_ptr, 0x1C /* queue_enable */, 1);
     
     // 设置 kick 函数需要的信息
     q->mmio_base_ptr = notify_cfg_ptr;
@@ -202,6 +202,14 @@ static void virtq_kick(struct virtq* q) {
 
     virtio_write_cap_16(notify_cfg_ptr, q->queue_notify_off, q->queue_idx); // q->num (queue_idx)
 };
+
+static inline void io_delay_us(uint32_t us) {
+    // 经验值：QEMU/KVM环境下约3000次循环=1ms
+    // 调整系数：us * 3 = 微秒数对应的循环次数
+    for (volatile uint32_t i = 0; i < us * 3; i++) {
+        asm volatile("outb %%al, $0x80" : : "a"(0)); // 使用端口0x80制造延迟
+    }
+}
 
 // ==========================================================================
 // VirtIO 初始化流程 (核心重写)
@@ -274,10 +282,11 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
     }
     
     // 3. 设备复位 (通过 common_cfg_ptr 访问)
+    tty_print("VirtIO: Resetting device...\n", 0xFFFFFF);
     virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, 0);
     int timeout = 1000; 
     while (virtio_read_cap_8(common_cfg_ptr, 0x14 /* device_status */) != 0 && timeout-- > 0) {
-        
+        io_delay_us(1000);
     }
     if (timeout <= 0) {
         tty_print("VirtIO: Device reset timed out!\n", 0xFF0000);
@@ -289,15 +298,22 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
     uint8_t status = 0;
     status |= VIRTIO_STATUS_ACKNOWLEDGE;
     virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, status);
-
+    tty_print("VirtIO: Set ACKNOWLEDGE. Status=0x", 0xFFFFFF);
+    print_hex(virtio_read_cap_8(common_cfg_ptr, 0x14), 0xFFFFFF);
+    tty_print("\n", 0xFFFFFF);
+    
     status |= VIRTIO_STATUS_DRIVER;
     virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, status);
+    tty_print("VirtIO: Set DRIVER. Status=0x", 0xFFFFFF);
+    print_hex(virtio_read_cap_8(common_cfg_ptr, 0x14), 0xFFFFFF);
+    tty_print("\n", 0xFFFFFF);
 
     // 5. 读取设备特性并协商 (Feature Negotiation)
     virtio_write_cap_32(common_cfg_ptr, 0x00 /* device_feature_select */, 0); // 选择低 32 位
     uint64_t device_features = virtio_read_cap_32(common_cfg_ptr, 0x04 /* device_feature */);
     virtio_write_cap_32(common_cfg_ptr, 0x00 /* device_feature_select */, 1); // 选择高 32 位
     device_features |= ((uint64_t)virtio_read_cap_32(common_cfg_ptr, 0x04 /* device_feature */)) << 32;
+
 
     // 为了简单，我们告诉设备我们支持它提供的所有特性
     uint64_t driver_features = device_features; 
@@ -313,9 +329,14 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
     virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, status);
 
     // 再次检查，确认设备接受了我们的特性
+    status |= VIRTIO_STATUS_FEATURES_OK;
+    virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, status);
+    tty_print("VirtIO: Set FEATURES_OK. Status=0x", 0xFFFFFF); 
+    print_hex(virtio_read_cap_8(common_cfg_ptr, 0x14), 0xFFFFFF);
+    tty_print("\n", 0xFFFFFF);
+    
     if (!(virtio_read_cap_8(common_cfg_ptr, 0x14 /* device_status */) & VIRTIO_STATUS_FEATURES_OK)) {
-        tty_print("VirtIO: Features not accepted by device!\n", 0xFF0000);
-        virtio_write_cap_8(common_cfg_ptr, 0x14, VIRTIO_STATUS_FAILED);
+        tty_print("VirtIO: Features *NOT* accepted by device! Device cleared the bit.\n", 0xFF0000);
         return;
     }
     tty_print("VirtIO: Feature negotiation complete.\n", 0x00FF00);
@@ -336,7 +357,8 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
     }
 
     // 8. 分配并初始化 Virtqueue
-    //    这里需要将 common_cfg_ptr 和 notify_cfg_ptr 传递给 virtq_alloc
+    //    这里需要将 common_cfg_ptr 和 notify_cfg_ptr 传递给 
+    
     rx_q = virtq_alloc(0, NUM_RX_DESC);
     tx_q = virtq_alloc(1, NUM_TX_DESC);
 
@@ -355,18 +377,22 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
     virtq_kick(rx_q); // 通知设备有空闲缓冲区
 
     // 10. 启用队列
-    //     Common Config: Queue Enable 0x0E
-    virtio_write_cap_16(common_cfg_ptr, 0x0E, 1); // Queue 0 enable
-    // Linux 内核在这里会为每个队列单独启用一次，但 OSDev 教程有时简化
-    // 明确启用每个队列
-    virtio_write_cap_16(common_cfg_ptr, 0x0E, 0); // Select queue 0
-    virtio_write_cap_16(common_cfg_ptr, 0x0E + 2, 1); // Enable it (offset +2 for Queue Enable)
-    virtio_write_cap_16(common_cfg_ptr, 0x0E, 1); // Select queue 1
-    virtio_write_cap_16(common_cfg_ptr, 0x0E + 2, 1); // Enable it
+    // Common Config: Queue Enable 0x0E
+    virtio_write_cap_16(common_cfg_ptr, 0x16 /* queue_select */, 0);
+    virtio_write_cap_16(common_cfg_ptr, 0x1C /* queue_enable */, 1);
+    tty_print("VirtIO: RX Queue #0 enabled.\n", 0x00FF00);
+
+    // 启用 TX 队列 (Queue 1)
+    virtio_write_cap_16(common_cfg_ptr, 0x16 /* queue_select */, 1);
+    virtio_write_cap_16(common_cfg_ptr, 0x1C /* queue_enable */, 1);
+    tty_print("VirtIO: TX Queue #1 enabled.\n", 0x00FF00);
 
     // 11. 完成设备初始化
     status |= VIRTIO_STATUS_DRIVER_OK;
     virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, status);
+    tty_print("VirtIO: Set DRIVER_OK. Final Status=0x", 0x00FF00); 
+    print_hex(virtio_read_cap_8(common_cfg_ptr, 0x14), 0x00FF00); 
+    tty_print("\n", 0x00FF00);
 
     tty_print("VirtIO Net initialized successfully!\n", 0x00FF00);
 }
