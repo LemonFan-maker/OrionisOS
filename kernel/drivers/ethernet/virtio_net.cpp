@@ -89,58 +89,165 @@ static void virtio_write_cap_64(volatile uint8_t* cap_base_ptr, uint32_t offset_
 // Virtqueue 实现
 // ==========================================================================
 // virtq_alloc 
-static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs) {
-    struct virtq* q = (struct virtq*)pmm_alloc_page(); // 描述符环，可用环，已用环在同一页
-    if (!q) return nullptr;
+// static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs) {
+//     tty_print("\n--- Allocating Queue #", 0xFFFF00);
+//     print_hex(q_idx, 0xFFFF00);
+//     tty_print(" ---\n", 0xFFFF00);
+
+//     struct virtq* q = (struct virtq*)pmm_alloc_page(); // 描述符环，可用环，已用环在同一页
+//     if (!q) return nullptr;
     
-    memset(q, 0, PAGE_SIZE); // 清零整页
+//     memset(q, 0, PAGE_SIZE); // 清零整页
 
+//     q->num = num_descs;
+//     q->queue_idx = q_idx; 
+//     q->desc = (struct virtq_desc*)((uintptr_t)q);
+//     // 可用环紧跟在描述符表之后
+//     q->avail = (struct virtq_avail*)((uintptr_t)q->desc + num_descs * sizeof(struct virtq_desc));
+//     // 已用环在可用环之后，需要计算其大小
+//     q->used = (struct virtq_used*)((uintptr_t)q->avail + sizeof(struct virtq_avail) + num_descs * sizeof(uint16_t)); // sizeof(ring array)
+
+//     // 初始化空闲描述符链表
+//     q->free_head = 0;
+//     for (int i = 0; i < num_descs - 1; i++) {
+//         q->desc[i].next = i + 1;
+//     }
+//     q->desc[num_descs - 1].next = 0; // 最后一个指向 0
+
+//     // --- 使用正确的 VirtIO 1.0+ Common Config 偏移量 ---
+//     // 1. 选择要配置的队列
+//     tty_print("  1. Writing queue_select=", 0xFFFFFF);
+//     print_hex(q_idx, 0xFFFFFF);
+//     tty_print(" to offset 0x16...\n", 0xFFFFFF);
+//     virtio_write_cap_16(common_cfg_ptr, 0x16 /* queue_select */, q_idx);
+
+//     uint16_t selected_q = virtio_read_cap_16(common_cfg_ptr, 0x16);
+//     tty_print("  2. Reading back queue_select from offset 0x16. Got: ", 0xFFFFFF); print_hex(selected_q, 0xFFFFFF); tty_print("\n", 0xFFFFFF);
+//     if (selected_q != q_idx) {
+//         tty_print("  FATAL: queue_select write did not take effect!\n", 0xFF0000);
+//     }
+
+//     // 2. 检查队列是否已在使用，如果是则驱动有误
+//     // if (virtio_read_cap_16(common_cfg_ptr, 0x18 /* queue_size */) != 0) {
+//     //     tty_print("VirtIO: Queue #", 0xFF0000);
+//     //     print_hex(q_idx, 0xFF0000);
+//     //     tty_print(" is already in use!\n", 0xFF0000);
+//     //     pmm_free_page(q);
+//     //     return nullptr;
+//     // }
+//     tty_print("  3. Reading queue_size from offset 0x18...\n", 0xFFFFFF);
+//     uint16_t current_size = virtio_read_cap_16(common_cfg_ptr, 0x18 /* queue_size */);
+//     tty_print("  4. Got queue_size = ", 0xFFFFFF);
+//     print_hex(current_size, 0xFFFFFF);
+//     tty_print("\n", 0xFFFFFF);
+
+//     uint16_t is_enabled = virtio_read_cap_16(common_cfg_ptr, 0x1C /* queue_enable */);
+//     if (is_enabled) {
+//         tty_print("VirtIO ERROR: Queue #", 0xFF0000); print_hex(q_idx, 0xFF0000); 
+//         tty_print(" is already enabled (active)!\n", 0xFF0000);
+//         pmm_free_page(q);
+//         return nullptr;
+//     }
+
+//     // tty_print("  OK: Queue size is 0, proceeding with setup.\n", 0x00FF00);
+
+//     // 3. 协商队列大小
+//     uint16_t max_size = virtio_read_cap_16(common_cfg_ptr, 0x18 /* queue_size (read as max_size) */);
+//     if (num_descs > max_size && max_size > 0) {
+//         num_descs = max_size; // 自动使用设备支持的最大值
+//         q->num = num_descs;
+//     }
+
+//     // 4. 设置最终使用的队列大小
+//     virtio_write_cap_16(common_cfg_ptr, 0x18 /* queue_size (write as final size) */, num_descs);
+
+//     // 5. 设置队列的物理地址
+//     virtio_write_cap_64(common_cfg_ptr, 0x20 /* queue_desc */, (uint64_t)q->desc);
+//     virtio_write_cap_64(common_cfg_ptr, 0x28 /* queue_driver */, (uint64_t)q->avail);
+//     virtio_write_cap_64(common_cfg_ptr, 0x30 /* queue_device */, (uint64_t)q->used);
+
+//     // 6. 获取通知信息
+//     q->queue_notify_off = virtio_read_cap_16(common_cfg_ptr, 0x1E /* queue_notify_off */);
+//     q->mmio_base_ptr = notify_cfg_ptr;
+
+//     tty_print("VirtIO: Successfully allocated Queue #", 0x00FF00); print_hex(q_idx, 0x00FF00); tty_print("\n", 0x00FF00);
+//     return q;
+// }
+
+// ==========================================================================
+// virtq_alloc (最终正确版)
+// ==========================================================================
+static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs) {
+    // --- 0. 为 virtq 结构体本身分配内存 ---
+    // 如果你有 kmalloc，用它更好。如果没有，用 pmm_alloc_page() 也可以，只是有点浪费。
+    struct virtq* q = (struct virtq*)pmm_alloc_page(); // 假设用页分配器
+    if (!q) return nullptr;
+    memset(q, 0, sizeof(struct virtq)); // 只清零结构体本身的大小
+
+    // --- 1. **核心修改**：为 buffers 指针数组单独分配内存 ---
+    // 同样，用 kmalloc 更好。这里我们再分配一个页来存放它。
+    q->buffers = (uint8_t**)pmm_alloc_page();
+    if (!q->buffers) {
+        pmm_free_page(q);
+        return nullptr;
+    }
+    memset(q->buffers, 0, num_descs * sizeof(uint8_t*)); // 清零指针数组
+
+    // --- 2. 为描述符环、可用环、已用环分配内存 (现在它们需要自己的页) ---
+    q->desc = (struct virtq_desc*)pmm_alloc_page();
+    if (!q->desc) { /* ... 错误处理，释放已分配的内存 ... */ return nullptr; }
+    
+    // 计算可用环和已用环的地址，它们可以共享一页
+    uintptr_t ring_page = (uintptr_t)pmm_alloc_page();
+    if (!ring_page) { /* ... 错误处理 ... */ return nullptr; }
+    q->avail = (struct virtq_avail*)ring_page;
+    q->used = (struct virtq_used*)(ring_page + 1024); // 简单地将它们放在一页的不同位置
+
+    // 清零这些新分配的页
+    memset(q->desc, 0, PAGE_SIZE);
+    memset((void*)ring_page, 0, PAGE_SIZE);
+
+    // --- 3. 初始化结构体和队列 (其余逻辑不变) ---
     q->num = num_descs;
-    q->queue_idx = q_idx; 
-    q->desc = (struct virtq_desc*)((uintptr_t)q);
-    // 可用环紧跟在描述符表之后
-    q->avail = (struct virtq_avail*)((uintptr_t)q->desc + num_descs * sizeof(struct virtq_desc));
-    // 已用环在可用环之后，需要计算其大小
-    q->used = (struct virtq_used*)((uintptr_t)q->avail + sizeof(struct virtq_avail) + num_descs * sizeof(uint16_t)); // sizeof(ring array)
-
-    // 初始化空闲描述符链表
-    q->free_head = 0;
+    q->queue_idx = q_idx;
+    // ... (初始化 free_head, next 指针等) ...
     for (int i = 0; i < num_descs - 1; i++) {
         q->desc[i].next = i + 1;
     }
-    q->desc[num_descs - 1].next = 0; // 最后一个指向 0
 
-    // --- 使用正确的 VirtIO 1.0+ Common Config 偏移量 ---
-    // 1. 选择要配置的队列
+    // --- 1. 选择队列 ---
     virtio_write_cap_16(common_cfg_ptr, 0x16 /* queue_select */, q_idx);
 
-    // 2. 检查队列是否已在使用，如果是则驱动有误
-    if (virtio_read_cap_16(common_cfg_ptr, 0x18 /* queue_size */) != 0) {
-        tty_print("VirtIO: Queue #", 0xFF0000); print_hex(q_idx, 0xFF0000); tty_print(" is already in use!\n", 0xFF0000);
+    // --- 2. 检查队列是否已被启用 (正确检查点) ---
+    if (virtio_read_cap_16(common_cfg_ptr, 0x1C /* queue_enable */)) {
+        tty_print("VirtIO FATAL: Queue #", 0xFF0000); print_hex(q_idx, 0xFF0000);
+        tty_print(" is already enabled before setup!\n", 0xFF0000);
         pmm_free_page(q);
         return nullptr;
     }
 
-    // 3. 设置队列大小
-    virtio_write_cap_16(common_cfg_ptr, 0x18 /* queue_size */, num_descs);
-    
-    // 4. 设置描述符表、可用环和已用环的64位物理地址
-    virtio_write_cap_64(common_cfg_ptr, 0x20 /* queue_desc */, (uint64_t)q->desc);
-    virtio_write_cap_64(common_cfg_ptr, 0x28 /* queue_driver (avail) */, (uint64_t)q->avail);
-    virtio_write_cap_64(common_cfg_ptr, 0x30 /* queue_device (used) */, (uint64_t)q->used);
+    // --- 3. 协商队列大小 ---
+    uint16_t max_size = virtio_read_cap_16(common_cfg_ptr, 0x18 /* queue_size (read as max_size) */);
+    if (num_descs > max_size && max_size > 0) {
+        num_descs = max_size; // 自动使用设备支持的最大值
+        q->num = num_descs;
+    }
 
-    // 5. 获取此队列的通知偏移 (for virtq_kick)
+    // --- 4. 【关键】设置最终使用的队列大小 ---
+    virtio_write_cap_16(common_cfg_ptr, 0x18 /* queue_size (write as final size) */, num_descs);
+
+    // --- 5. 【关键】设置队列的物理地址 ---
+    virtio_write_cap_64(common_cfg_ptr, 0x20 /* queue_desc */, (uint64_t)q->desc);
+    virtio_write_cap_64(common_cfg_ptr, 0x28 /* queue_driver */, (uint64_t)q->avail);
+    virtio_write_cap_64(common_cfg_ptr, 0x30 /* queue_device */, (uint64_t)q->used);
+
+    // --- 6. 获取通知信息 ---
     q->queue_notify_off = virtio_read_cap_16(common_cfg_ptr, 0x1E /* queue_notify_off */);
-    
-    // 6. 启用队列
-    // virtio_write_cap_16(common_cfg_ptr, 0x1C /* queue_enable */, 1);
-    
-    // 设置 kick 函数需要的信息
     q->mmio_base_ptr = notify_cfg_ptr;
-    
+
+    tty_print("VirtIO: Successfully allocated Queue #", 0x00FF00); print_hex(q_idx, 0x00FF00); tty_print("\n", 0x00FF00);
     return q;
 }
-
 
 // virtq_free (简化，仅释放页)
 static void virtq_free(struct virtq* q) {
@@ -334,7 +441,7 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
     tty_print("VirtIO: Set FEATURES_OK. Status=0x", 0xFFFFFF); 
     print_hex(virtio_read_cap_8(common_cfg_ptr, 0x14), 0xFFFFFF);
     tty_print("\n", 0xFFFFFF);
-    
+
     if (!(virtio_read_cap_8(common_cfg_ptr, 0x14 /* device_status */) & VIRTIO_STATUS_FEATURES_OK)) {
         tty_print("VirtIO: Features *NOT* accepted by device! Device cleared the bit.\n", 0xFF0000);
         return;

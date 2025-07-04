@@ -62,11 +62,12 @@ struct virtq {
     uint16_t num;
     uint16_t queue_idx;
     uint16_t free_head;
-    uint8_t *buffers[0];
     volatile uint8_t* mmio_base_ptr;
     uint32_t queue_notify_off;
     // --- 新增：用于跟踪已用环进度 ---
     uint16_t used_idx; 
+    // 不再使用柔性数组成员
+    uint8_t **buffers;
 };
 
 // 初始化 virtio 网卡
