@@ -17,6 +17,8 @@
 #define PCI_CLASS_DISPLAY_CONTROLLER 0x03
 #define PCI_CLASS_BRIDGE_DEVICE      0x06
 
+#define VIRTIO_VENDOR_ID 0x1AF4
+
 // PCI 函数声明
 void pci_init(); // 初始化 PCI 扫描
 void pci_scan_bus(void (*callback)(uint8_t bus, uint8_t device, uint8_t function, uint16_t vendor_id, uint16_t device_id));

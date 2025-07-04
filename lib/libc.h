@@ -20,7 +20,7 @@ extern "C" {
     // --- 声明由 memcpy_asm.asm 实现的 memcpy ---
     void *memcpy(void *dest, const void *src, size_t n);
     void* memmove(void* dest, const void* src, size_t n);
-
+    void *memset(void *s, int c, size_t n);
 
     #ifdef __cplusplus
 }

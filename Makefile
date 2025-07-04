@@ -28,12 +28,10 @@ LDFLAGS = -nostdlib -static -no-pie -z max-page-size=0x1000 -T linker.ld
 QEMU_CMD   = qemu-system-x86_64
 QEMU_FLAGS = -m 2G \
     -device isa-debug-exit,iobase=0x8900,iosize=0x01 \
-    -netdev user,id=net0 -device e1000,netdev=net0 \
+    -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
     -device piix3-ide,id=ide0 \
     -device ide-hd,bus=ide0.0,drive=disk0,unit=0,id=disk_a \
     -drive file=$(KERNEL_HDD),if=none,format=raw,id=disk0
-
-
 
 # --- Makefile 规则---
 .DEFAULT_GOAL := all

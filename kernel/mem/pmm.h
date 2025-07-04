@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stivale.h>
 
+#define PAGE_SIZE 4096
+
 // 初始化物理内存管理器
 void init_pmm(stivale_struct* boot_info);
 
