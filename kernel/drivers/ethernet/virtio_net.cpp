@@ -3,6 +3,7 @@
 #include "kernel/drivers/tty.h"
 #include "kernel/mem/pmm.h"
 #include "lib/libc.h"
+#include "timer.h"
 
 static uintptr_t pci_bars[6] = {0}; 
 
@@ -109,31 +110,33 @@ static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs) {
     }
     q->desc[num_descs - 1].next = 0; // 最后一个指向 0
 
-    // 设置队列索引 (Guest Page Table PFN)
-    // Linux/OSDev 建议用 QueuePFN 寄存器，但在 VirtIO 1.0 PCI Configuration Space 中，
-    // 是通过 common config 中的 QueueDesc/Avail/Used 寄存器设置物理地址
-    // 这里我们已经通过 virtio_write_cap_64 完成了物理地址设置。
-    // 这里主要是选择队列号
-    virtio_write_cap_16(common_cfg_ptr, 0x0E, q_idx); // Queue select
-    virtio_write_cap_16(common_cfg_ptr, 0x08, num_descs); // Queue size
+    // --- 使用正确的 VirtIO 1.0+ Common Config 偏移量 ---
+    // 1. 选择要配置的队列
+    virtio_write_cap_16(common_cfg_ptr, 0x16 /* queue_select */, q_idx);
 
-    // --- 修正调用名称 ---
-    virtio_write_cap_64(common_cfg_ptr, 0x10, (uint64_t)q->desc); // Queue Desc
-    virtio_write_cap_64(common_cfg_ptr, 0x18, (uint64_t)q->avail); // Queue Avail
-    virtio_write_cap_64(common_cfg_ptr, 0x20, (uint64_t)q->used); // Queue Used
+    // 2. 检查队列是否已在使用，如果是则驱动有误
+    if (virtio_read_cap_16(common_cfg_ptr, 0x18 /* queue_size */) != 0) {
+        tty_print("VirtIO: Queue #", 0xFF0000); print_hex(q_idx, 0xFF0000); tty_print(" is already in use!\n", 0xFF0000);
+        pmm_free_page(q);
+        return nullptr;
+    }
 
-    // 启用队列 (Common Config: Queue Enable 0x0E, bit 0)
-    // 实际是队列号寄存器，写 1 启用队列，写 0 禁用
-    // OSDev 建议在所有设置完成后再启用队列
-    // 在主初始化函数末尾统一启用队列，此处仅设置物理地址
-    // Linux 在 e1000_enable_queues 中设置 enable
-    // 所以这里不直接写 enable 位
+    // 3. 设置队列大小
+    virtio_write_cap_16(common_cfg_ptr, 0x18 /* queue_size */, num_descs);
+    
+    // 4. 设置描述符表、可用环和已用环的64位物理地址
+    virtio_write_cap_64(common_cfg_ptr, 0x20 /* queue_desc */, (uint64_t)q->desc);
+    virtio_write_cap_64(common_cfg_ptr, 0x28 /* queue_driver (avail) */, (uint64_t)q->avail);
+    virtio_write_cap_64(common_cfg_ptr, 0x30 /* queue_device (used) */, (uint64_t)q->used);
 
-     // Linux/OSDev common_cfg.h: queue_notify_off_multiplier is at common_cfg_ptr + 0x0A
-    uint32_t notify_off_multiplier = virtio_read_cap_32(common_cfg_ptr, 0x0A); // Not 0x00, 0x0A is notify_off_multiplier
-
-    q->mmio_base_ptr = notify_cfg_ptr; // 用于 virtq_kick
-    q->queue_notify_off = virtio_read_cap_32(notify_cfg_ptr, 0x00); // Notify offset for this queue
+    // 5. 获取此队列的通知偏移 (for virtq_kick)
+    q->queue_notify_off = virtio_read_cap_16(common_cfg_ptr, 0x1E /* queue_notify_off */);
+    
+    // 6. 启用队列
+    virtio_write_cap_16(common_cfg_ptr, 0x1C /* queue_enable */, 1);
+    
+    // 设置 kick 函数需要的信息
+    q->mmio_base_ptr = notify_cfg_ptr;
     
     return q;
 }
@@ -231,54 +234,96 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
     // 2. 扫描 PCI Capabilities，找到各个配置块的 MMIO 指针
     uint8_t cap_ptr_offset = pci_read_dword(pci_bus, pci_device, pci_function, 0x34) & 0xFF; // Capability Pointer
     while (cap_ptr_offset != 0) {
-        uint32_t cap_header_dword = pci_read_dword(pci_bus, pci_device, pci_function, cap_ptr_offset + 0);
-        uint8_t cap_vndr = cap_header_dword & 0xFF;
-        uint8_t cap_next = (cap_header_dword >> 8) & 0xFF;
-        uint8_t cap_len  = (cap_header_dword >> 16) & 0xFF;
-        if (cap_vndr == 0x09) { // PCI_CAP_ID_VNDR
-            // 读取 VirtIO 特定部分
-            uint32_t cfg_type_bar_dword = pci_read_dword(pci_bus, pci_device, pci_function, cap_ptr_offset + 4);
-            uint8_t cfg_type = cfg_type_bar_dword & 0xFF;
-            uint8_t cap_bar_idx = (cfg_type_bar_dword >> 8) & 0xFF;
-            uint32_t cap_offset_in_bar = pci_read_dword(pci_bus, pci_device, pci_function, cap_ptr_offset + 8);
-            
-            // 计算这个 Capability 的实际 MMIO 地址
-            volatile uint8_t* base_ptr_for_cap = (volatile uint8_t*)((uintptr_t)pci_bars[cap_bar_idx] + cap_offset_in_bar);
+        // 读取 Capability Header 的前 4 个字节 (ID, next, len, type)
+        uint32_t cap_header = pci_read_dword(pci_bus, pci_device, pci_function, cap_ptr_offset);
+        uint8_t cap_vndr = cap_header & 0xFF;
+        uint8_t cap_next = (cap_header >> 8) & 0xFF;
 
-            switch (cfg_type) {
-                case VIRTIO_PCI_CAP_COMMON_CFG: tty_print("  Common Cap @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); common_cfg_ptr = base_ptr_for_cap; break;
-                case VIRTIO_PCI_CAP_NOTIFY_CFG: tty_print("  Notify Cap @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); notify_cfg_ptr = base_ptr_for_cap; break;
-                case VIRTIO_PCI_CAP_ISR_CFG:    tty_print("  ISR Cap @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); isr_cfg_ptr = base_ptr_for_cap; break;
-                case VIRTIO_PCI_CAP_DEVICE_CFG: tty_print("  Device Cap @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); device_cfg_ptr = base_ptr_for_cap; break;
-                case VIRTIO_PCI_CAP_PCI_CFG:    tty_print("  PCI Cap @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); pci_cfg_ptr = base_ptr_for_cap; break;
+        if (cap_vndr == 0x09) { // 确认是 Vendor Specific Capability (VirtIO 使用 0x09)
+            // 读取 Capability 结构的其余部分
+            uint32_t dword_bar_padding = pci_read_dword(pci_bus, pci_device, pci_function, cap_ptr_offset + 4);
+            uint32_t dword_offset      = pci_read_dword(pci_bus, pci_device, pci_function, cap_ptr_offset + 8);
+            
+            // --- 核心修正：从正确的位置提取字段 ---
+            // cfg_type 在 offset +3，是 cap_header 的最高字节
+            uint8_t cfg_type = (cap_header >> 24) & 0xFF; 
+            // bar 在 offset +4，是 dword_bar_padding 的最低字节
+            uint8_t cap_bar_idx = dword_bar_padding & 0xFF;
+            // offset 在 offset +8，就是 dword_offset
+            uint32_t cap_offset_in_bar = dword_offset;
+            
+            // 确保 BAR 索引有效且 BAR 地址已读取
+            if (cap_bar_idx < 6 && pci_bars[cap_bar_idx] != 0) {
+                volatile uint8_t* base_ptr_for_cap = (volatile uint8_t*)(pci_bars[cap_bar_idx] + cap_offset_in_bar);
+
+                switch (cfg_type) {
+                    case VIRTIO_PCI_CAP_COMMON_CFG: tty_print("  Found Common Cfg @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); common_cfg_ptr = base_ptr_for_cap; break;
+                    case VIRTIO_PCI_CAP_NOTIFY_CFG: tty_print("  Found Notify Cfg @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); notify_cfg_ptr = base_ptr_for_cap; break;
+                    case VIRTIO_PCI_CAP_ISR_CFG:    tty_print("  Found ISR Cfg @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); isr_cfg_ptr = base_ptr_for_cap; break;
+                    case VIRTIO_PCI_CAP_DEVICE_CFG: tty_print("  Found Device Cfg @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); device_cfg_ptr = base_ptr_for_cap; break;
+                    case VIRTIO_PCI_CAP_PCI_CFG:    tty_print("  Found PCI Cfg @ 0x", 0xFFFFFF); print_hex((uint64_t)base_ptr_for_cap, 0x00FFFF); tty_print("\n", 0x00FFFF); pci_cfg_ptr = base_ptr_for_cap; break;
+                }
             }
         }
         cap_ptr_offset = cap_next;
     }
     
-if (!common_cfg_ptr || !notify_cfg_ptr || !isr_cfg_ptr || !device_cfg_ptr) {
+    if (!common_cfg_ptr || !notify_cfg_ptr || !isr_cfg_ptr || !device_cfg_ptr) {
         tty_print("VirtIO: Missing crucial capabilities!\n", 0xFF0000);
         return;
     }
     
     // 3. 设备复位 (通过 common_cfg_ptr 访问)
-    virtio_write_cap_8(common_cfg_ptr, 0x14, VIRTIO_STATUS_RESET); // Device Status Register offset 0x14
-    for(volatile int i=0; i<100000; i++); // 忙等待
+    virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, 0);
+    int timeout = 1000; 
+    while (virtio_read_cap_8(common_cfg_ptr, 0x14 /* device_status */) != 0 && timeout-- > 0) {
+        
+    }
+    if (timeout <= 0) {
+        tty_print("VirtIO: Device reset timed out!\n", 0xFF0000);
+        return;
+    }
+    tty_print("VirtIO: Device reset complete.\n", 0x00FF00);
     
     // 4. 设置驱动状态: Acknowledge, Driver
-    virtio_write_cap_8(common_cfg_ptr, 0x14, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER);
+    uint8_t status = 0;
+    status |= VIRTIO_STATUS_ACKNOWLEDGE;
+    virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, status);
+
+    status |= VIRTIO_STATUS_DRIVER;
+    virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, status);
 
     // 5. 读取设备特性并协商 (Feature Negotiation)
-    uint64_t device_features = virtio_read_cap_64(common_cfg_ptr, 0x00); // Common Config: Device Feature Select (high/low)
-    virtio_write_cap_64(common_cfg_ptr, 0x08, device_features); // Common Config: Driver Feature Select (accept all)
+    virtio_write_cap_32(common_cfg_ptr, 0x00 /* device_feature_select */, 0); // 选择低 32 位
+    uint64_t device_features = virtio_read_cap_32(common_cfg_ptr, 0x04 /* device_feature */);
+    virtio_write_cap_32(common_cfg_ptr, 0x00 /* device_feature_select */, 1); // 选择高 32 位
+    device_features |= ((uint64_t)virtio_read_cap_32(common_cfg_ptr, 0x04 /* device_feature */)) << 32;
+
+    // 为了简单，我们告诉设备我们支持它提供的所有特性
+    uint64_t driver_features = device_features; 
+
+    // 将我们选择的特性写回给设备
+    virtio_write_cap_32(common_cfg_ptr, 0x08 /* driver_feature_select */, 0);
+    virtio_write_cap_32(common_cfg_ptr, 0x0C /* driver_feature */, (uint32_t)driver_features);
+    virtio_write_cap_32(common_cfg_ptr, 0x08 /* driver_feature_select */, 1);
+    virtio_write_cap_32(common_cfg_ptr, 0x0C /* driver_feature */, (uint32_t)(driver_features >> 32));
     
     // 6. 确认特性协商完成
-    virtio_write_cap_8(common_cfg_ptr, 0x14, virtio_read_cap_8(common_cfg_ptr, 0x14) | VIRTIO_STATUS_FEATURES_OK);
+    status |= VIRTIO_STATUS_FEATURES_OK;
+    virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, status);
+
+    // 再次检查，确认设备接受了我们的特性
+    if (!(virtio_read_cap_8(common_cfg_ptr, 0x14 /* device_status */) & VIRTIO_STATUS_FEATURES_OK)) {
+        tty_print("VirtIO: Features not accepted by device!\n", 0xFF0000);
+        virtio_write_cap_8(common_cfg_ptr, 0x14, VIRTIO_STATUS_FAILED);
+        return;
+    }
+    tty_print("VirtIO: Feature negotiation complete.\n", 0x00FF00);
 
     // 7. 获取 MAC 地址 (通过 device_cfg_ptr 访问)
-    if (device_features & VIRTIO_NET_F_MAC) {
+    if (driver_features & (1ULL << 5) /* VIRTIO_NET_F_MAC */) {
         for (int i = 0; i < 6; i++) {
-            virtio_net_mac_addr[i] = virtio_read_cap_8(device_cfg_ptr, i); // Device Config: MAC Address offset 0
+            virtio_net_mac_addr[i] = virtio_read_cap_8(device_cfg_ptr, i);
         }
         tty_print("VirtIO MAC: ", 0xFFFFFF);
         for (int i = 0; i < 6; i++) {
@@ -286,18 +331,18 @@ if (!common_cfg_ptr || !notify_cfg_ptr || !isr_cfg_ptr || !device_cfg_ptr) {
             if (i < 5) tty_print(":", 0x00FF00);
         }
         tty_print("\n", 0x00FF00);
-    } else {
+     } else {
         tty_print("VirtIO: MAC address feature not supported.\n", 0xFF6060);
     }
 
     // 8. 分配并初始化 Virtqueue
     //    这里需要将 common_cfg_ptr 和 notify_cfg_ptr 传递给 virtq_alloc
-    rx_q = virtq_alloc(0, NUM_RX_DESC); // 队列 0 是接收
-    tx_q = virtq_alloc(1, NUM_TX_DESC); // 队列 1 是发送
+    rx_q = virtq_alloc(0, NUM_RX_DESC);
+    tx_q = virtq_alloc(1, NUM_TX_DESC);
 
     if (!rx_q || !tx_q) {
         tty_print("VirtIO: Failed to allocate virtqueues.\n", 0xFF0000);
-        virtio_write_cap_8(common_cfg_ptr, 0x14, virtio_read_cap_8(common_cfg_ptr, 0x14) | VIRTIO_STATUS_DRIVER_OK);
+        virtio_write_cap_8(common_cfg_ptr, 0x14, VIRTIO_STATUS_FAILED);
         return;
     }
 
@@ -320,9 +365,10 @@ if (!common_cfg_ptr || !notify_cfg_ptr || !isr_cfg_ptr || !device_cfg_ptr) {
     virtio_write_cap_16(common_cfg_ptr, 0x0E + 2, 1); // Enable it
 
     // 11. 完成设备初始化
-    virtio_write_cap_8(common_cfg_ptr, 0x14, virtio_read_cap_8(common_cfg_ptr, 0x14) | VIRTIO_STATUS_DRIVER_OK);
+    status |= VIRTIO_STATUS_DRIVER_OK;
+    virtio_write_cap_8(common_cfg_ptr, 0x14 /* device_status */, status);
 
-    tty_print("VirtIO Net initialized.\n", 0x00FF00);
+    tty_print("VirtIO Net initialized successfully!\n", 0x00FF00);
 }
 
 // 获取 MAC 地址
