@@ -99,29 +99,6 @@ OrionisOS 已经具备了作为现代操作系统核心的诸多功能，以下�
 
 **外部工具**：`fdisk`, `mtools` (用于操作 FAT32 镜像)。
 
-## 📁 项目结构 (Project Structure)
-
-项目采用模块化结构，主要目录如下：
-
-```
-.
-├── command/            # Shell 和内置命令的实现
-│   ├── command.cpp
-│   └── shell.cpp
-├── kernel/             # 内核核心代码
-│   ├── boot.h          # 全局引导信息声明
-│   ├── cpu/            # CPU 相关模块 (GDT, IDT, PIC, PIT, CPUInfo, PCI)
-│   ├── drivers/        # 硬件驱动 (TTY, Keyboard, RTC, E1000)
-│   ├── mem/            # 内存管理 (PMM)
-│   ├── panic.h/cpp     # 内核恐慌处理
-│   └── ...
-├── lib/                # 通用库函数 (libc, strutils, memcpy_asm)
-├── limine/             # Limine 引导加载程序源码和工具
-├── limine.cfg          # Limine 配置文件
-├── linker.ld           # 内核链接器脚本
-└── Makefile            # 项目构建脚本
-```
-
 ## 🚀 构建与运行 (Building & Running)
 
 ### 前提条件 (Prerequisites)
@@ -223,7 +200,7 @@ OrionisOS 仍处于早期开发阶段，但已经具备了坚实的基础。未�
 
 ## 📄 许可证 (License)
 
-本项目采用 MIT 许可证。详见 `LICENSE` 文件。
+本项目采用 GPL 3.0 许可证。详见 `LICENSE` 文件。
 
 ---
 **Happy Hacking!**
