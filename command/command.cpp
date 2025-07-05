@@ -180,11 +180,11 @@ void cmd_nettest_virtio() {
 }
 
 void cmd_version() {
-    print("Kernel version: ", 0x00FFAA);
-    print(KERNEL_VERSION, 0x00FFAA);
-    print("\nCommand version: ", 0x00FFAA);
-    print(COMMAND_VERSION, 0x00FFAA);
-    print("\n", 0x00FFAA);
+    tty_print("Kernel version: ", 0x00FFAA);
+    tty_print(KERNEL_VERSION, 0x00FFAA);
+    tty_print("\nCommand version: ", 0x00FFAA);
+    tty_print(COMMAND_VERSION, 0x00FFAA);
+    tty_print("\n", 0x00FFAA);
 }
 
 void cmd_lspci() {
@@ -204,21 +204,21 @@ void cmd_lspci() {
 void execute_command(const char* command) {
     if (strcmp(command, "debug") == 0) {
         debug_mode = 1;
-        print("\nDebug mode enabled.\n", 0x00FF00);
+        tty_print("\nDebug mode enabled.\n", 0x00FF00);
         return;
     }
     if (strcmp(command, "undebug") == 0) {
         if (debug_mode) {
             debug_mode = 0;
-            print("\nDebug mode disabled.\n", 0x00FF00);
+            tty_print("\nDebug mode disabled.\n", 0x00FF00);
         } else {
-            print("\nNo debug mode found.\n", 0xFF6060);
+            tty_print("\nNo debug mode found.\n", 0xFF6060);
         }
         return;
     }
     if (debug_mode) {
-        print("\n[DEBUG] Received command string: '", 0xFFFF00);
-        print(command, 0xFFFF00);
+        tty_print("\n[DEBUG] Received command string: '", 0xFFFF00);
+        tty_print(command, 0xFFFF00);
         print("'\n", 0xFFFF00);
         print("[DEBUG] String length: ", 0xFFFF00);
         print_hex(strlen(command), 0xFFFF00);
