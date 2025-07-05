@@ -1,6 +1,4 @@
 #pragma once
-
-// 我们需要 stivale_struct 的定义
 #include <stivale.h>
 
 // 使用 extern 关键字声明 boot_info 是一个 stivale_struct 指针，

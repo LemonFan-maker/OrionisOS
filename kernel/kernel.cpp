@@ -14,16 +14,16 @@
 #include "kernel/drivers/ethernet/e1000.h"
 #include "kernel/drivers/ethernet/virtio_net.h"
 
-// --- 版本号 ---
+//  版本号 
 const char* KERNEL_VERSION = "1.4.0-dirty+";
 
-// --- 全局变量定义 ---
+//  全局变量定义 
 // 全局指针，用于保存引导信息，所有模块都可以访问
 stivale_struct* boot_info; 
 // 显示cursor
 bool cursor_visible = true;
 
-// --- 外部函数声明 ---
+//  外部函数声明 
 extern "C" void init_gdt();
 void set_isr_stivale_struct(stivale_struct* info);
 
@@ -39,7 +39,7 @@ static struct stivale_header_tag stivale_hdr = {
     .entry_point = 0
 };
 
-// --- 内核功能函数 ---
+//  内核功能函数 
 
 // put_pixel 函数现在使用全局 boot_info
 void put_pixel(uint32_t x, uint32_t y, uint32_t color) {
@@ -105,24 +105,23 @@ void print(const char* str, uint32_t color) {
             cursor_x = 10;
         }
     }
-    // --- 核心修改：在函数结尾，根据当前可见状态，重绘光标 ---
+    //  核心修改：在函数结尾，根据当前可见状态，重绘光标 
     uint32_t cursor_draw_color = cursor_visible ? 0xFFFFFF : current_bg_color;
     draw_rect(cursor_x, cursor_y, 9, 16, cursor_draw_color);
 }
 
 void my_pci_device_callback(uint8_t bus, uint8_t device, uint8_t function, uint16_t vendor_id, uint16_t device_id) {
     if (vendor_id == 0x8086 && (device_id == 0x100E || device_id == 0x100F || device_id == 0x10D3)) {
-        // 这段 E1000 的代码现在可以删除了，或者留着以防万一
         tty_print("  Found Intel E1000 Network Card! (Old)\n", 0x0A);
     }
-    // --- 新增：识别 VirtIO 网卡 ---
+    //  新增：识别 VirtIO 网卡 
     if (vendor_id == 0x1AF4 && (device_id == 0x1000 || device_id == 0x1041)) {
         tty_print("  Found VirtIO Network Card!\n", 0x00FF00); // 绿色
-        virtio_net_init(bus, device, function); // <--- 调用 VirtIO 网卡初始化
+        virtio_net_init(bus, device, function); // < 调用 VirtIO 网卡初始化
     }
 }
 
-// --- 内核主入口 ---
+//  内核主入口 
 extern "C" void kmain(struct stivale_struct *stivale_struct) {
     tty_init(stivale_struct);
     // 关键第一步：将引导信息保存到全局变量
@@ -193,7 +192,7 @@ extern "C" void kmain(struct stivale_struct *stivale_struct) {
     tty_print("Reading MBR (LBA 0)...", 0xFFFFFF);
     uint8_t mbr_buffer[512]; // 512字节的缓冲区
     if (ata_read_sectors(0, 0, 1, mbr_buffer)) { // master drive, LBA 0, 1 sector
-        uint16_t mbr_signature = (uint16_t)mbr_buffer[510] | ((uint16_t)mbr_buffer[511] << 8); // 正确组合签名
+        uint16_t mbr_signature = (uint16_t)mbr_buffer[510] | ((uint16_t)mbr_buffer[511] << 8);
         tty_print("\nMBR read successful. Signature: 0x", 0x00FF00);
         print_hex(mbr_signature, 0x00FFFF); // 打印整个 16 位的签名
         tty_print("\n", 0x00FFFF);

@@ -22,14 +22,10 @@
 #define ATA_SR_DRDY 0x40 // Drive Ready
 #define ATA_SR_DF   0x20 // Drive Write Fault
 #define ATA_SR_ERR  0x01 // Error
-#define ATA_SR_DRQ  0x08 // <--- 新增：Data Request Ready
+#define ATA_SR_DRQ  0x08
 
 // 初始化 ATA 驱动
 void ata_init();
 
 // 读取扇区
-// drive: 0 (master), 1 (slave)
-// lba: 扇区逻辑块地址 (Logical Block Address)
-// num_sectors: 要读取的扇区数量
-// buffer: 存储读取数据的缓冲区 (必须至少 num_sectors * 512 字节)
 bool ata_read_sectors(uint8_t drive, uint64_t lba, uint8_t num_sectors, void* buffer);

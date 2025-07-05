@@ -3,7 +3,7 @@
 ; 声明我们将要调用的 C++ 通用处理器
 extern isr_handler
 
-; --- 宏定义：用于生成 ISR 存根 ---
+;  宏定义：用于生成 ISR 存根 
 ; ISR 无错误码版本
 %macro ISR_NO_ERR_CODE 1
 [global isr%1]
@@ -23,7 +23,7 @@ isr%1:
     jmp isr_common_stub
 %endmacro
 
-; --- 通用存根 ---
+;  通用存根 
 ; 所有 ISR 都会跳转到这里
 isr_common_stub:
     ; 保存所有通用寄存器
@@ -66,7 +66,7 @@ isr_common_stub:
     add rsp, 16 ; 清理中断号和错误码
     iretq        ; 中断返回 (重要！不是 ret)
 
-; --- 生成前32个 ISR (用于 CPU 异常) ---
+;  生成前32个 ISR (用于 CPU 异常) 
 ISR_NO_ERR_CODE 0
 ISR_NO_ERR_CODE 1
 ISR_NO_ERR_CODE 2

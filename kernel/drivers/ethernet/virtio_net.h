@@ -65,7 +65,7 @@ struct virtq {
     volatile uint8_t* mmio_base_ptr;
     uint32_t queue_notify_off;
     uint32_t notify_off_multiplier;
-    // --- 新增：用于跟踪已用环进度 ---
+    //  新增：用于跟踪已用环进度 
     uint16_t used_idx; 
     // 不再使用柔性数组成员
     uint8_t **buffers;

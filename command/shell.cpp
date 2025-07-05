@@ -4,17 +4,17 @@
 #include <stdint.h>
 #include "kernel/boot.h"
 
-// --- 外部依赖 ---
+//  外部依赖 
 extern void print(const char* str, uint32_t color);
 // 我们需要直接访问光标变量
 extern uint32_t cursor_x; 
 extern uint32_t cursor_y;
 
-// --- 模块内全局变量 ---
+//  模块内全局变量 
 #define CMD_BUFFER_SIZE 256
 static char cmd_buffer[CMD_BUFFER_SIZE];
 static int cmd_buffer_index = 0;
-// --- 新增：记录当前命令行的起始 X 坐标 ---
+//  新增：记录当前命令行的起始 X 坐标 
 static uint32_t line_start_x = 0;
 
 void init_shell() {

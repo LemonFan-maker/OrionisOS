@@ -3,7 +3,7 @@
 #include "kernel/drivers/tty.h"
 #include "lib/libc.h"
 
-// --- 辅助函数 ---
+//  辅助函数 
 
 // 等待 BSY 位清零，带有超时机制
 static int ata_wait_bsy() {
@@ -23,7 +23,6 @@ static int ata_wait_drq() {
     return 1; // Timed out
 }
 
-// ata_read_buffer 不变
 static bool ata_read_buffer(uint16_t* buffer, size_t words) {
     for (size_t i = 0; i < words; i++) {
         // 在读取每一个字之前，都等待 DRQ
@@ -36,7 +35,7 @@ static bool ata_read_buffer(uint16_t* buffer, size_t words) {
     return true;
 }
 
-// --- 公共接口函数 ---
+//  公共接口函数 
 
 void ata_init() {
     // 我们可以尝试识别一下硬盘
