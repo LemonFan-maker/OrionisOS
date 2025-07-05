@@ -5,7 +5,7 @@
 #include "kernel/boot.h"
 
 //  外部依赖 
-extern void print(const char* str, uint32_t color);
+extern void tty_print(const char* str, uint32_t color);
 // 我们需要直接访问光标变量
 extern uint32_t cursor_x; 
 extern uint32_t cursor_y;
