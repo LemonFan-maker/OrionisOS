@@ -114,6 +114,23 @@ void cmd_cpuinfo() {
     get_cpu_vendor(vendor);
     tty_print("\nCPU Vendor: ", 0xFFFFFF);
     tty_print(vendor, 0x00FFFF);
+
+    char brand[49];
+    get_cpu_brand_string(brand);
+    tty_print("\nCPU Brand: ", 0xFFFFFF);
+    tty_print(brand, 0x00FFFF);
+
+    uint32_t ecx, edx;
+    get_cpu_features(&ecx, &edx);
+    tty_print("\nFeatures: ", 0xFFFFFF);
+    if (edx & (1 << 23)) tty_print(" MMX", 0x00FF00);
+    if (edx & (1 << 25)) tty_print(" SSE", 0x00FF00);
+    if (edx & (1 << 26)) tty_print(" SSE2", 0x00FF00);
+    if (ecx & (1 << 0)) tty_print(" SSE3", 0x00FF00);
+    if (ecx & (1 << 19)) tty_print(" SSE4.1", 0x00FF00);
+    if (ecx & (1 << 20)) tty_print(" SSE4.2", 0x00FF00);
+    if (ecx & (1 << 28)) tty_print(" AVX", 0x00FF00);
+
     tty_print("\n", 0x00FFFF);
 }
 
