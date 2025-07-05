@@ -9,7 +9,7 @@
 #include "kernel/drivers/ethernet/virtio_net.h"
 #include "kernel/cpu/pci_ids.h"
 
-#define COMMAND_VERSION "1.11.1-dirty+"
+#define COMMAND_VERSION "1.11.2-dirty+"
 
 // 外部符号声明
 extern void print_hex(uint64_t value, uint32_t color);
@@ -234,6 +234,18 @@ void execute_command(const char* command) {
             print_hex((unsigned char)command[i], 0xAAAAAA);
             tty_print(" ", 0xAAAAAA);
         }
+        tty_print("\n", 0xFFFF00);
+        // 增强：显示当前光标位置、背景色、命令缓冲区首地址
+        tty_print("[DEBUG] Cursor: (", 0xFFFF00);
+        print_hex(cursor_x, 0xFFFF00);
+        tty_print(",", 0xFFFF00);
+        print_hex(cursor_y, 0xFFFF00);
+        tty_print(")\n", 0xFFFF00);
+        tty_print("[DEBUG] BG Color: 0x", 0xFFFF00);
+        print_hex(current_bg_color, 0xFFFF00);
+        tty_print("\n", 0xFFFF00);
+        tty_print("[DEBUG] Command ptr: 0x", 0xFFFF00);
+        print_hex((uint64_t)command, 0xFFFF00);
         tty_print("\n", 0xFFFF00);
     }
     if (strcmp(command, "help") == 0) {
