@@ -1,8 +1,8 @@
 # OrionisOS - A Custom x86_64 Operating System
 
-![OrionisOS Logo Placeholder](https://img.shields.io/badge/OrionisOS-OSDev-blue?style=flat-square)
-![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square)
-![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
+![OrionisOS Logo Placeholder](https://img.shields.io/badge/OrionisOS-OSDev-blue?style=for-the-badge)
+![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge)
+![License](https://img.shields.io/github/license/LemonFan-maker/OrionisOS?style=for-the-badge)
 
 ## 🌌 简介 (Introduction)
 
