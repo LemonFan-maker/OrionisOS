@@ -17,7 +17,7 @@ extern "C" {
 
     size_t strlen(const char *str);
 
-    // --- 声明由 memcpy_asm.asm 实现的 memcpy ---
+    //  声明由 memcpy_asm.asm 实现的 memcpy ---
     void *memcpy(void *dest, const void *src, size_t n);
     void* memmove(void* dest, const void* src, size_t n);
     void *memset(void *s, int c, size_t n);

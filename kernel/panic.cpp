@@ -25,7 +25,6 @@ void kernel_panic(registers_t* regs, const char* message) {
         tty_print("\n\nRegister Dump:\n", 0xFFFFFF);
         tty_print("  RAX=", 0xFFFFFF); print_hex(regs->rax, 0x00FFFF);
         tty_print("  RBX=", 0xFFFFFF); print_hex(regs->rbx, 0x00FFFF);
-        // ... 打印所有你感兴趣的寄存器 ...
         tty_print("\n  RIP=", 0xFFFFFF); print_hex(regs->rip, 0x00FFFF);
         tty_print("   CS=", 0xFFFFFF); print_hex(regs->cs, 0x00FFFF);
         tty_print(" RFLAGS=", 0xFFFFFF); print_hex(regs->rflags, 0x00FFFF);

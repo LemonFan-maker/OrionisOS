@@ -47,10 +47,10 @@ struct e1000_tx_desc {
 // 初始化 E1000 网卡
 void e1000_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function);
 
-// --- 新增：发送数据包 ---
+//  新增：发送数据包 
 bool e1000_send_packet(const uint8_t* data, uint16_t len);
 
-// --- 新增：处理网卡中断 ---
+//  新增：处理网卡中断 
 void e1000_handle_interrupt();
 
 // 获取网卡MAC地址

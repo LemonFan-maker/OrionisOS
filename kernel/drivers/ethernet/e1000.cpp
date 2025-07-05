@@ -230,7 +230,7 @@ void e1000_handle_interrupt() {
 
             tty_print("  Received Packet Len: ", 0x00FFFF); print_hex(len, 0x00FFFF); tty_print("\n", 0x00FFFF);
             
-            // --- 识别以太网帧类型 (EtherType) ---
+            //  识别以太网帧类型 (EtherType) 
             uint16_t eth_type = (packet_data[12] << 8) | packet_data[13];
             tty_print("  EtherType: 0x", 0xFFFFFF); print_hex(eth_type, 0x00FF00); tty_print("\n", 0x00FF00);
 

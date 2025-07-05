@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 
-// --- 命令实现 ---
+//  命令实现 
 void cmd_help() {
     print("Available commands:\n", 0xFFFFFF);
     print("  help - Display this message\n", 0xFFFFFF);
@@ -44,7 +44,7 @@ void cmd_help() {
     print("  nettest - Check Network Status\n", 0xFFFFFF);
 }
 
-// --- 新增：debug 模式全局变量 ---
+//  新增：debug 模式全局变量 
 static int debug_mode = 0;
 
 void cmd_clear() {
@@ -66,12 +66,12 @@ void cmd_echo(const char* command) {
     }
 }
 
-// --- shutdown 命令 ---
+//  shutdown 命令 
 void cmd_shutdown() {
     asm volatile("outw %%ax, %%dx" : : "a"(0x2000), "d"(0x604));
 }
 
-// --- meminfo 命令 ---
+//  meminfo 命令 
 void cmd_meminfo() {
     // 1. 从 PMM 获取原始数据
     uint64_t total_pages = pmm_get_total_pages();
@@ -184,7 +184,7 @@ void cmd_memtest() {
     tty_print("\nMemtest Finish", 0x00FF00);
 }
 
-void cmd_nettest_virtio() { // 为了区分，我们可以重命名一下
+void cmd_nettest_virtio() {
     tty_print("\n--- VirtIO Network Test ---\n", 0x00FFFF);
 
     // 1. 获取 VirtIO 网卡的 MAC 地址
@@ -200,7 +200,7 @@ void cmd_nettest_virtio() { // 为了区分，我们可以重命名一下
     }
     tty_print("\n", 0x00FF00);
 
-    // 2. 构造一个标准的 ARP 请求包 (这部分逻辑完全不变，非常棒)
+    // 2. 构造一个标准的 ARP 请求包
     uint8_t arp_packet[60] = {0}; // 以太网帧最小长度是 60 字节 (不含 CRC)
 
     // 以太网头 (14 bytes)
@@ -231,7 +231,7 @@ void cmd_nettest_virtio() { // 为了区分，我们可以重命名一下
     }
 }
 
-// --- version 命令 ---
+//  version 命令 
 void cmd_version() {
     print("Kernel version: ", 0x00FFAA);
     print(KERNEL_VERSION, 0x00FFAA);

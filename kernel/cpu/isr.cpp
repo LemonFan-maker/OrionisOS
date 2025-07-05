@@ -15,12 +15,12 @@ extern void print_hex(uint64_t value, uint32_t color);
 // 全局变量
 static uint64_t tick = 0;
 
-// --- 核心修改：将所有 ISR 蹦床函数的声明放在全局作用域，由 idt.cpp 提供 ---
+//  核心修改：将所有 ISR 蹦床函数的声明放在全局作用域，由 idt.cpp 提供 
 // isr_handler 不直接调用 isrXX，所以这里不需要声明它们。
 // 它只关心 regs->int_no。
 
 extern "C" void isr_handler(registers_t* regs) {
-    // --- 1. 处理 CPU 异常 (0-31) ---
+    //  1. 处理 CPU 异常 (0-31) 
     if (regs->int_no < 32) {
         if (regs->int_no == 3) { // Breakpoint
             kernel_panic(regs, "Breakpoint exception (int 3) triggered.");
@@ -31,7 +31,7 @@ extern "C" void isr_handler(registers_t* regs) {
             kernel_panic(regs, "Unhandled CPU Exception.");
         }
     }
-    // --- 2. 处理硬件中断 (32-47) ---
+    //  2. 处理硬件中断 (32-47) 
     else if (regs->int_no >= 32 && regs->int_no < 48) {
         // IRQ0: PIT (中断号 32)
         if (regs->int_no == 32) { 
@@ -50,7 +50,7 @@ extern "C" void isr_handler(registers_t* regs) {
         else if (regs->int_no == 42) {
             tty_print("INT: ", 0xFFFFFF); print_hex(regs->int_no, 0xFFFFFF); tty_print("\n", 0xFFFFFF);
             tty_print("E1000 Interrupt hit! Calling handler.\n", 0xFF00FF);
-            e1000_handle_interrupt(); // <--- 这是对 e1000.h 中声明函数的调用
+            e1000_handle_interrupt(); // < 这是对 e1000.h 中声明函数的调用
         } 
         else if (regs->int_no == 43) {
             // VirtIO 中断处理函数内部会读取并清除中断状态，非常干净
@@ -63,10 +63,10 @@ extern "C" void isr_handler(registers_t* regs) {
             tty_print("\n", 0xFFFF00);
         }
 
-        // --- 核心：只在这里发送一次 EOI ---
+        //  核心：只在这里发送一次 EOI 
         pic_send_eoi(regs->int_no - 32); 
     }
-    // --- 3. 处理其他未知的/自定义中断 ---
+    //  3. 处理其他未知的/自定义中断 
     else {
         tty_print("Received Unknown Interrupt: ", 0xFFFFFF);
         print_hex(regs->int_no, 0xFFFFFF);

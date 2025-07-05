@@ -1,11 +1,11 @@
-# --- 工具链和程序 ---
+#  工具链和程序 
 CXX        = x86_64-elf-g++
 LD         = x86_64-elf-ld
 NASM       = nasm
 LIMINE_EXE = ./limine/limine-install
 LIMINE_BIN = ./limine/limine.bin
 
-# --- 文件和目录 ---
+#  文件和目录 
 SRC_DIRS = kernel kernel/cpu kernel/drivers kernel/mem kernel/drivers/ata command lib kernel/drivers/ethernet
 CXX_SOURCES = $(foreach dir, $(SRC_DIRS), $(wildcard $(dir)/*.cpp))
 ASM_SOURCES = $(foreach dir, $(SRC_DIRS), $(wildcard $(dir)/*.asm))
@@ -16,7 +16,7 @@ KERNEL_ELF = kernel.elf
 KERNEL_HDD = disk.hdd
 LIMINE_CFG = limine.cfg
 
-# --- 编译和链接标志 ---
+#  编译和链接标志 
 # 我们只告诉编译器去 limine/ 目录下找 stivale.h
 # 其他所有头文件都将通过相对路径找到
 CXXFLAGS = -std=c++17 -ffreestanding -fno-exceptions -fno-rtti -Wall -Wextra \
@@ -24,7 +24,7 @@ CXXFLAGS = -std=c++17 -ffreestanding -fno-exceptions -fno-rtti -Wall -Wextra \
 NASMFLAGS = -f elf64
 LDFLAGS = -nostdlib -static -no-pie -z max-page-size=0x1000 -T linker.ld
 
-# --- QEMU 设置 ---
+#  QEMU 设置 
 QEMU_CMD   = qemu-system-x86_64
 QEMU_FLAGS = -m 2G \
     -device isa-debug-exit,iobase=0x8900,iosize=0x01 \
@@ -33,7 +33,7 @@ QEMU_FLAGS = -m 2G \
     -device ide-hd,bus=ide0.0,drive=disk0,unit=0,id=disk_a \
     -drive file=$(KERNEL_HDD),if=none,format=raw,id=disk0
 
-# --- Makefile 规则---
+#  Makefile 规则
 .DEFAULT_GOAL := all
 all: $(KERNEL_HDD)
 
