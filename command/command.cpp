@@ -9,7 +9,7 @@
 #include "kernel/drivers/ethernet/virtio_net.h"
 #include "kernel/cpu/pci_ids.h"
 
-#define COMMAND_VERSION "1.11.0-dirty+"
+#define COMMAND_VERSION "1.11.1-dirty+"
 
 // 外部符号声明
 extern void print_hex(uint64_t value, uint32_t color);
@@ -101,6 +101,12 @@ void cmd_cpuinfo() {
     if (ecx & (1 << 20)) tty_print(" SSE4.2", 0x00FF00);
     if (ecx & (1 << 28)) tty_print(" AVX", 0x00FF00);
     tty_print("\n", 0x00FFFF);
+    // 新增主频、缓存、占用率输出
+    uint32_t l1, l2, l3;
+    get_cpu_cache_info(&l1, &l2, &l3);
+    tty_print("L1 Cache: ", 0xFFFFFF); print_dec(l1, 0x00FFFF); tty_print(" KB  ", 0xFFFFFF);
+    tty_print("L2 Cache: ", 0xFFFFFF); print_dec(l2, 0x00FFFF); tty_print(" KB  ", 0xFFFFFF);
+    tty_print("L3 Cache: ", 0xFFFFFF); print_dec(l3, 0x00FFFF); tty_print(" KB\n", 0xFFFFFF);
 }
 
 void cmd_time() {

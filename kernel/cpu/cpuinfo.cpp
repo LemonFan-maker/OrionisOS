@@ -22,3 +22,28 @@ void get_cpu_brand_string(char* buffer) {
 void get_cpu_features(uint32_t* ecx, uint32_t* edx) {
     cpuid_features(ecx, edx);
 }
+
+// 获取 CPU 各级缓存大小（单位：KB），如不支持返回0
+void get_cpu_cache_info(uint32_t* l1_kb, uint32_t* l2_kb, uint32_t* l3_kb) {
+    *l1_kb = 0; *l2_kb = 0; *l3_kb = 0;
+    uint32_t eax, ebx, ecx, edx;
+    // L2/L3: CPUID 0x80000006
+    __asm__ __volatile__ (
+        "mov $0x80000006, %%eax\n\t"
+        "cpuid\n\t"
+        : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+        :
+        :
+    );
+    *l2_kb = (ecx >> 16) & 0xFFFF; // L2 Cache size in KB
+    *l3_kb = (edx >> 18) & 0x3FFF; // L3 Cache size in KB (部分CPU)
+    // L1: CPUID 0x80000005
+    __asm__ __volatile__ (
+        "mov $0x80000005, %%eax\n\t"
+        "cpuid\n\t"
+        : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+        :
+        :
+    );
+    *l1_kb = (ecx >> 24) & 0xFF; // L1 Data Cache size in KB
+}
