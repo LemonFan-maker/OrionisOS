@@ -1,5 +1,5 @@
 #include "command.h"
-#include "kernel/drivers/tty.h" // 需要 print/tty_print
+#include "kernel/drivers/tty.h" // 需要 tty_print
 #include "kernel/boot.h"         // 需要 boot_info 来清屏
 #include "kernel/cpu/ports.h"
 #include "lib/libc.h"
@@ -12,7 +12,6 @@
 #define COMMAND_VERSION "1.11.0-dirty+"
 
 // 外部符号声明
-extern void print(const char* str, uint32_t color);
 extern void print_hex(uint64_t value, uint32_t color);
 extern void put_pixel(uint32_t x, uint32_t y, uint32_t color);
 extern uint32_t current_bg_color;
@@ -33,20 +32,20 @@ static int debug_mode = 0;
 // ================== 命令实现 ==================
 
 void cmd_help() {
-    print("Available commands:\n", 0xFFFFFF);
-    print("  help - Display this message\n", 0xFFFFFF);
-    print("  clear - Clear the screen\n", 0xFFFFFF);
-    print("  debug - Enable debug mode\n", 0xFFFFFF);
-    print("  undebug - Disable debug mode\n", 0xFFFFFF);
-    print("  echo <text> - Echo the input text\n", 0xFFFFFF);
-    print("  shutdown - Power off the system\n", 0xFFFFFF);
-    print("  meminfo - Show memory info\n", 0xFFFFFF);
-    print("  cpuinfo - Show CPU info\n", 0xFFFFFF);
-    print("  time - Show now time\n", 0xFFFFFF);
-    print("  panic - Let's make kernel panic\n", 0xFFFFFF);
-    print("  version - Show kernel and command version\n", 0xFFFFFF);
-    print("  nettest - Check Network Status\n", 0xFFFFFF);
-    print("  lspci - List PCI devices\n", 0xFFFFFF);
+    tty_print("Available commands:\n", 0xFFFFFF);
+    tty_print("  help - Display this message\n", 0xFFFFFF);
+    tty_print("  clear - Clear the screen\n", 0xFFFFFF);
+    tty_print("  debug - Enable debug mode\n", 0xFFFFFF);
+    tty_print("  undebug - Disable debug mode\n", 0xFFFFFF);
+    tty_print("  echo <text> - Echo the input text\n", 0xFFFFFF);
+    tty_print("  shutdown - Power off the system\n", 0xFFFFFF);
+    tty_print("  meminfo - Show memory info\n", 0xFFFFFF);
+    tty_print("  cpuinfo - Show CPU info\n", 0xFFFFFF);
+    tty_print("  time - Show now time\n", 0xFFFFFF);
+    tty_print("  panic - Let's make kernel panic\n", 0xFFFFFF);
+    tty_print("  version - Show kernel and command version\n", 0xFFFFFF);
+    tty_print("  nettest - Check Network Status\n", 0xFFFFFF);
+    tty_print("  lspci - List PCI devices\n", 0xFFFFFF);
 }
 
 void cmd_clear() {
@@ -57,10 +56,10 @@ void cmd_echo(const char* command) {
     const char* msg = command + 5;
     while (*msg == ' ') msg++;
     if (*msg == '\0') {
-        print("\n", 0xFFFFFF);
+        tty_print("\n", 0xFFFFFF);
     } else {
-        print(msg, 0xFFFFFF);
-        print("\n", 0xFFFFFF);
+        tty_print(msg, 0xFFFFFF);
+        tty_print("\n", 0xFFFFFF);
     }
 }
 
@@ -219,17 +218,17 @@ void execute_command(const char* command) {
     if (debug_mode) {
         tty_print("\n[DEBUG] Received command string: '", 0xFFFF00);
         tty_print(command, 0xFFFF00);
-        print("'\n", 0xFFFF00);
-        print("[DEBUG] String length: ", 0xFFFF00);
+        tty_print("'\n", 0xFFFF00);
+        tty_print("[DEBUG] String length: ", 0xFFFF00);
         print_hex(strlen(command), 0xFFFF00);
-        print("\n", 0xFFFF00);
-        print("[DEBUG] Hex dump: ", 0xFFFF00);
+        tty_print("\n", 0xFFFF00);
+        tty_print("[DEBUG] Hex dump: ", 0xFFFF00);
         for (size_t i = 0; i <= strlen(command); i++) {
-            print("0x", 0xAAAAAA);
+            tty_print("0x", 0xAAAAAA);
             print_hex((unsigned char)command[i], 0xAAAAAA);
-            print(" ", 0xAAAAAA);
+            tty_print(" ", 0xAAAAAA);
         }
-        print("\n", 0xFFFF00);
+        tty_print("\n", 0xFFFF00);
     }
     if (strcmp(command, "help") == 0) {
         cmd_help();
@@ -256,8 +255,8 @@ void execute_command(const char* command) {
     } else if (strcmp(command, "lspci") == 0) {
         cmd_lspci();
     } else {
-        print("\nUnknown command: ", 0xFF6060);
-        print(command, 0xFF6060);
-        print("\n", 0xFF6060);
+        tty_print("\nUnknown command: ", 0xFF6060);
+        tty_print(command, 0xFF6060);
+        tty_print("\n", 0xFF6060);
     }
 }
