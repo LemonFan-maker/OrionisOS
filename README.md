@@ -15,6 +15,7 @@
 OrionisOS 已经具备了作为现代操作系统核心的诸多功能，以下是当前版本已实现的亮点：
 
 ### 🚀 核心引导与系统初始化 (Core Boot & System Initialization)
+
 **Limine 引导**：通过 Limine 引导加载程序启动内核，并接收来自其的引导信息。
 
 **64 位长模式运行**：内核在 x86_64 架构的 64 位长模式下运行，充分利用现代处理器的能力。
@@ -34,7 +35,9 @@ OrionisOS 已经具备了作为现代操作系统核心的诸多功能，以下�
 **全面启用中断 (STI)**：系统准备好接收并处理来自硬件的所有中断信号。
 
 ### 🖥️ 显示与交互 (Display & Interaction)
+
 **Framebuffer 图形模式**：直接操作帧缓冲显存，在图形模式下进行像素级绘制。
+
 **自定义 9x16 像素字体**：提供清晰且美观的文本渲染效果。
 
 **多色文本输出**：支持 32 位 RGB 颜色，输出多彩的日志和命令行信息。
@@ -43,24 +46,26 @@ OrionisOS 已经具备了作为现代操作系统核心的诸多功能，以下�
 
 **键盘驱动**：通过中断捕获键盘事件，支持扫描码到 ASCII 的转换，处理 Shift、Caps Lock、Backspace、Enter 等按键。
 
-**自适应光标**：在命令输入区域显示动态光标，提供更好的用户体验。
-
 ### 🧠 资源管理 (Resource Management)
+
 **PMM (物理内存管理器)**：解析 Limine 提供的内存映射表，使用位图算法管理物理内存页的分配和释放。这是实现虚拟内存和动态内存分配的基础。
 
 ### 🌐 网络能力 (Networking) - (基础已具备，未来可扩展)
+
 **PCI 总线扫描**：能够枚举并识别系统上连接的所有 PCI 设备。
 
 **Intel E1000 网卡识别与基础初始化**：成功识别 QEMU 模拟的 E1000 网卡，读取其 MMIO 地址、MAC 地址，并设置发送/接收 DMA 环形缓冲区。
 
-**以太网帧发送**：能够构建并发送原始的以太网帧（例如 ARP 请求），开启了与外部世界通信的大门。
+**以太网帧发送**：能够构建并发送原始的以太网帧，开启了与外部世界通信的大门。
 
 ### 🐚 命令行 Shell (Command Line Interface)
+
 **模块化设计**：Shell 逻辑被清晰地分离到独立的 `command/` 模块，易于扩展和维护。
 
 **命令缓冲区管理**：支持命令输入、回显和精确的退格操作。
 
 **丰富的内置命令**：
+
 `help`：显示所有可用命令的列表。
 
 `clear`：清空屏幕内容，并重置光标到顶部。
@@ -102,6 +107,7 @@ OrionisOS 已经具备了作为现代操作系统核心的诸多功能，以下�
 ## 🚀 构建与运行 (Building & Running)
 
 ### 前提条件 (Prerequisites)
+
 1. **x86_64-elf 交叉编译器**：你需要安装一个针对 `x86_64-elf` 目标的 GCC 工具链。在 Linux 上，可以手动编译 [GNU Toolchain for x86_64-elf](https://wiki.osdev.org/GCC_Cross-Compiler)，或使用像 `limine-bootloader/limine` 项目提供的 `toolchain/make_toolchain.sh` 脚本。 
 2. **QEMU**：安装 `qemu-system-x86_64`。 
 3. **其他工具**：`make`, `fdisk` (或 `parted`), `mtools` (例如 `mformat`, `mcopy`)。
@@ -110,17 +116,18 @@ OrionisOS 已经具备了作为现代操作系统核心的诸多功能，以下�
 ```bash
 sudo apt update
 sudo apt install build-essential qemu-system-x86 fdisk mtools parted
-# 安装交叉编译器可能需要手动编译或查找预构建版本
+# 安装交叉编译器需要手动编译或查找预构建版本，也可以寻找预编译版本
 ```
 
 **在 Arch Linux 上安装**:
 ```bash
-sudo pacman -S base-devel qemu gptfdisk mtools parted
+sudo pacman -S base-devel qemu gptfdisk mtools parted yay
 # 安装交叉编译器
-sudo pacman -S x86_64-elf-gcc x86_64-elf-binutils
+sudo yay -S x86_64-elf-gcc x86_64-elf-binutils
 ```
 
 ### 构建步骤 (Build Steps)
+
 在项目根目录下打开终端：
 ```bash
 # 清理所有之前编译生成的文件
@@ -134,6 +141,7 @@ make -j
 如果构建成功，你将在项目根目录下找到 `kernel.elf` (内核可执行文件) 和 `disk.hdd` (可引导的磁盘镜像)。
 
 ### 运行操作系统 (Running OrionisOS)
+
 ```bash
 make run
 ```
@@ -160,11 +168,13 @@ make run
 
 `debug` / `undebug`：开启/关闭调试信息。
 
-`panic`：触发内核恐慌。
+`panic`：手动触发内核恐慌。
 
 `echo <text>`：回显文本。
 
 `version`：查看版本信息。
+
+`lspci`：查看目前所有的PCI设备。
 
 ## 🗺️ 未来展望 (Future Plans / Roadmap)
 
@@ -180,13 +190,13 @@ OrionisOS 仍处于早期开发阶段，但已经具备了坚实的基础。未�
 
 **文件系统增强**：实现完整的 FAT32 读写支持，甚至探索 EXT2/EXT4。
 
-**更完善的设备驱动**：硬盘驱动 [ATA(已经在搞了)/AHCI]，USB 驱动，计时器增强 (HPET)。
+**更完善的设备驱动**：硬盘驱动，USB 驱动，计时器增强 (HPET)。
 
 **网络协议栈**：实现 ARP、IP、ICMP、UDP、TCP 等协议。
 
 **图形用户界面 (GUI)**：在 Framebuffer 模式下绘制窗口、鼠标指针等。
 
-**移植**:在闲得无聊的时候可以想象一下移植到 aarch64 上该有多难。
+**移植**：在闲得无聊的时候可以想象一下移植到 aarch64 上该有多难。
 
 ## 🙏 鸣谢 (Acknowledgements)
 
@@ -194,7 +204,7 @@ OrionisOS 仍处于早期开发阶段，但已经具备了坚实的基础。未�
 
 **OSDev Wiki**：操作系统开发者的宝贵知识库。
 
-**Linux Kernel Developers**：特别是 `e1000` 驱动的开发者，他们的开源代码是学习和理解底层硬件交互的无价之宝。(有可能是我太废物，导致到现在都没研究明白E1000是如何接收 ARP 请求QAQ)
+**Linux Kernel Developers**：特别是 `e1000` 和 `Virtio Ethernet`驱动的开发者，他们的开源代码是学习和理解底层硬件交互的无价之宝。(有可能是我太废物，导致到现在都没研究明白E1000是如何接收 ARP 请求QAQ)
 
 **BruhOS**：感谢其在 GDT 和启动流程方面提供的宝贵参考。
 
