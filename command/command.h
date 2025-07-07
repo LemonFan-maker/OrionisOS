@@ -16,3 +16,4 @@ void cmd_memtest();
 void cmd_nettest_virtio();
 void cmd_version();
 void cmd_lspci();
+void cmd_reboot();
