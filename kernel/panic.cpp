@@ -20,7 +20,7 @@ void kernel_panic(registers_t* regs, const char* message) {
     tty_print("Reason: ", 0xFFFFFF);
     tty_print(message, 0xFFFF00); // 黄色
 
-    // 4. (可选但推荐) 打印寄存器状态
+    // 4. 打印寄存器状态
     if (regs) {
         tty_print("\n\nRegister Dump:\n", 0xFFFFFF);
         tty_print("  RAX=", 0xFFFFFF); print_hex(regs->rax, 0x00FFFF);

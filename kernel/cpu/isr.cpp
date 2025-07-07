@@ -15,7 +15,7 @@ extern void print_hex(uint64_t value, uint32_t color);
 // 全局变量
 static uint64_t tick = 0;
 
-//  核心修改：将所有 ISR 蹦床函数的声明放在全局作用域，由 idt.cpp 提供 
+// 核心修改：将所有 ISR 蹦床函数的声明放在全局作用域，由 idt.cpp 提供 
 // isr_handler 不直接调用 isrXX，所以这里不需要声明它们。
 // 它只关心 regs->int_no。
 
