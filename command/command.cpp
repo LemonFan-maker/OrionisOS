@@ -9,7 +9,7 @@
 #include "kernel/drivers/ethernet/virtio_net.h"
 #include "kernel/cpu/pci_ids.h"
 
-#define COMMAND_VERSION "1.11.3-dirty+"
+#define COMMAND_VERSION "1.12.0-dirty+"
 
 // 外部符号声明
 extern void print_hex(uint64_t value, uint32_t color);
@@ -39,6 +39,7 @@ void cmd_help() {
     tty_print("  undebug - Disable debug mode\n", 0xFFFFFF);
     tty_print("  echo <text> - Echo the input text\n", 0xFFFFFF);
     tty_print("  shutdown - Power off the system\n", 0xFFFFFF);
+    tty_print("  reboot - Reboot the system\n", 0xFFFFFF);
     tty_print("  meminfo - Show memory info\n", 0xFFFFFF);
     tty_print("  cpuinfo - Show CPU info\n", 0xFFFFFF);
     tty_print("  time - Show now time\n", 0xFFFFFF);
@@ -285,6 +286,21 @@ void cmd_lspci() {
     pci_scan_bus(print_pci_info);
 }
 
+void cmd_reboot() {
+    tty_print("\nRebooting system...\n", 0xFF6060);
+
+    // 1. 等待键盘控制器输入缓冲区为空
+    kbc_wait_for_input_buffer_empty();
+    
+    // 2. 向命令端口 (0x64) 发送重启命令 (0xFE)
+    outb(KBC_COMMAND_PORT, KBC_COMMAND_REBOOT_SYSTEM);
+
+    // 系统应该会立刻重启，如果执行到这里，说明重启失败了
+    tty_print("Reboot failed. Halting.\n", 0xFF0000);
+    for(;;) asm("hlt"); // 如果重启失败，就永久停机
+}
+
+
 // ================== 命令分发 ==================
 
 void execute_command(const char* command) {
@@ -353,6 +369,8 @@ void execute_command(const char* command) {
         cmd_nettest_virtio();
     } else if (strcmp(command, "lspci") == 0) {
         cmd_lspci();
+    } else if (strcmp(command, "reboot") == 0) {
+        cmd_reboot();
     } else {
         tty_print("\nUnknown command: ", 0xFF6060);
         tty_print(command, 0xFF6060);
