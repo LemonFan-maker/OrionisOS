@@ -112,7 +112,43 @@ void cmd_cpuinfo() {
 
 void cmd_time() {
     rtc_time_t current_time;
-    rtc_get_time(&current_time);
+    rtc_get_time(&current_time);  // 先获取 RTC 时间（假设是 UTC）
+
+    // 转换为北京时间（UTC+8）
+    current_time.hour += 8;
+
+    // 处理小时溢出（>=24 时进位到天）
+    if (current_time.hour >= 24) {
+        current_time.hour -= 24;
+        current_time.day += 1;
+
+        // 处理月份天数溢出（简单版，不考虑闰年）
+        uint8_t days_in_month = 31;  // 默认 31 天
+        if (current_time.month == 4 || current_time.month == 6 || current_time.month == 9 || current_time.month == 11) {
+            days_in_month = 30;
+        } else if (current_time.month == 2) {
+            // 简单判断闰年（能被 4 整除）
+            if ((current_time.year % 4) == 0) {
+                days_in_month = 29;
+            } else {
+                days_in_month = 28;
+            }
+        }
+
+        // 如果天数超出当前月份，进位到下一月
+        if (current_time.day > days_in_month) {
+            current_time.day = 1;
+            current_time.month += 1;
+
+            // 如果月份超出 12，进位到下一年
+            if (current_time.month > 12) {
+                current_time.month = 1;
+                current_time.year += 1;
+            }
+        }
+    }
+
+    // 格式化输出（YYYY-MM-DD HH:MM:SS）
     tty_print("\n", 0xFFFFFF);
     print_dec(current_time.year, 0xFFFFFF); tty_print("-", 0xFFFFFF);
     if (current_time.month < 10) tty_print("0", 0xFFFFFF);
