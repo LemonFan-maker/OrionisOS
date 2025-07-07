@@ -9,7 +9,7 @@
 #include "kernel/drivers/ethernet/virtio_net.h"
 #include "kernel/cpu/pci_ids.h"
 
-#define COMMAND_VERSION "1.11.2-dirty+"
+#define COMMAND_VERSION "1.11.3-dirty+"
 
 // 外部符号声明
 extern void print_hex(uint64_t value, uint32_t color);
@@ -20,9 +20,9 @@ extern void init_shell();
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-void *memcpy(void *dest, const void *src, size_t n);
-#ifdef __cplusplus
+    #endif
+    void *memcpy(void *dest, const void *src, size_t n);
+    #ifdef __cplusplus
 }
 #endif
 
@@ -133,20 +133,101 @@ void cmd_panic() {
 
 void cmd_memtest() {
     tty_clear();
-    cursor_x = 0; cursor_y = 18 * 5;
-    for (int i = 0; i < 50; i++) tty_putc('A', 0xFFFFFF);
-    cursor_x = 0; cursor_y = 18 * 10;
-    for (int i = 0; i < 50; i++) tty_putc('B', 0xFF0000);
-    uint32_t* fb = (uint32_t*)boot_info->framebuffer_addr;
-    uint32_t pitch = boot_info->framebuffer_pitch;
-    size_t bytes_per_char = 9 * 4;
-    size_t bytes_to_copy = 50 * bytes_per_char;
-    for (int row = 0; row < 16; row++) {
-        uint8_t* src = (uint8_t*)(fb) + (18 * 5 + row) * pitch;
-        uint8_t* dst = (uint8_t*)(fb) + (18 * 10 + row) * pitch;
-        memcpy(dst, src, bytes_to_copy);
+    tty_print("\n[MemTest] Testing only free physical pages...\n", 0x00FFFF);
+    uint64_t total_pages = pmm_get_total_pages();
+    uint64_t tested_pages = 0;
+    uint64_t error_count = 0;
+    uint64_t step = total_pages / 100;
+    if (step == 0) step = 1;
+
+    // Increment pattern test
+    for (uint64_t i = 0; i < total_pages; ++i) {
+        // Test only free pages
+        extern bool pmm_bitmap_test(uint64_t page_index);
+        if (!pmm_bitmap_test(i)) {
+            uint32_t* page = (uint32_t*)(i * PAGE_SIZE);
+            size_t words = PAGE_SIZE / sizeof(uint32_t);
+            for (size_t j = 0; j < words; ++j) {
+                page[j] = (uint32_t)j;
+            }
+            tested_pages++;
+        }
+        if (i % step == 0) tty_print(".", 0xAAAAAA);
     }
-    tty_print("\nMemtest Finish", 0x00FF00);
+    tty_print("\n[MemTest] Increment write completed, starting verification...\n", 0x00FFFF);
+    for (uint64_t i = 0; i < total_pages; ++i) {
+        extern bool pmm_bitmap_test(uint64_t page_index);
+        if (!pmm_bitmap_test(i)) {
+            uint32_t* page = (uint32_t*)(i * PAGE_SIZE);
+            size_t words = PAGE_SIZE / sizeof(uint32_t);
+            for (size_t j = 0; j < words; ++j) {
+                if (page[j] != (uint32_t)j) {
+                    error_count++;
+                    if (error_count < 5) {
+                        tty_print("[ERR] Page: 0x", 0xFF0000);
+                        print_hex((uint64_t)page, 0xFF0000);
+                        tty_print(" Offset:", 0xFF0000);
+                        print_hex(j * 4, 0xFF0000);
+                        tty_print(" Expected: 0x", 0xFF0000);
+                        print_hex((uint64_t)j, 0xFF0000);
+                        tty_print(" Actual: 0x", 0xFF0000);
+                        print_hex((uint64_t)page[j], 0xFF0000);
+                        tty_print("\n", 0xFF0000);
+                    }
+                }
+            }
+        }
+        if (i % step == 0) tty_print(".", 0xAAAAAA);
+    }
+    tty_print("\n[MemTest] Increment verification completed.\n", 0x00FFFF);
+
+    // Inverted pattern test
+    for (uint64_t i = 0; i < total_pages; ++i) {
+        extern bool pmm_bitmap_test(uint64_t page_index);
+        if (!pmm_bitmap_test(i)) {
+            uint32_t* page = (uint32_t*)(i * PAGE_SIZE);
+            size_t words = PAGE_SIZE / sizeof(uint32_t);
+            for (size_t j = 0; j < words; ++j) {
+                page[j] = ~(uint32_t)j;
+            }
+        }
+        if (i % step == 0) tty_print(".", 0xAAAAAA);
+    }
+    tty_print("\n[MemTest] Inverted write completed, starting verification...\n", 0x00FFFF);
+    for (uint64_t i = 0; i < total_pages; ++i) {
+        extern bool pmm_bitmap_test(uint64_t page_index);
+        if (!pmm_bitmap_test(i)) {
+            uint32_t* page = (uint32_t*)(i * PAGE_SIZE);
+            size_t words = PAGE_SIZE / sizeof(uint32_t);
+            for (size_t j = 0; j < words; ++j) {
+                if (page[j] != ~(uint32_t)j) {
+                    error_count++;
+                    if (error_count < 5) {
+                        tty_print("[ERR] Page: 0x", 0xFF0000);
+                        print_hex((uint64_t)page, 0xFF0000);
+                        tty_print(" Offset:", 0xFF0000);
+                        print_hex(j * 4, 0xFF0000);
+                        tty_print(" Expected: 0x", 0xFF0000);
+                        print_hex(~(uint64_t)j, 0xFF0000);
+                        tty_print(" Actual: 0x", 0xFF0000);
+                        print_hex((uint64_t)page[j], 0xFF0000);
+                        tty_print("\n", 0xFF0000);
+                    }
+                }
+            }
+        }
+        if (i % step == 0) tty_print(".", 0xAAAAAA);
+    }
+    tty_print("\n[MemTest] Inverted verification completed.\n", 0x00FFFF);
+
+    if (error_count == 0) {
+        tty_print("[MemTest] All tests passed!\n", 0x00FF00);
+    } else {
+        tty_print("[MemTest] Errors detected: ", 0xFF0000);
+        print_hex(error_count, 0xFF0000);
+        tty_print("\n", 0xFF0000);
+    }
+    tty_print("\nMemtest Finish\n", 0x00FF00);
 }
 
 void cmd_nettest_virtio() {

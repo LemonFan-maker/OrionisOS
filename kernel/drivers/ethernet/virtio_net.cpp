@@ -486,7 +486,7 @@ void virtio_net_handle_interrupt() {
             struct virtq_used_elem* used_elem = &tx_q->used->ring[tx_q->used_idx % tx_q->num];
             uint16_t desc_idx = used_elem->id;
             
-            tty_print("  > VirtIO: TX packet acknowledged. Desc=", 0x00FF00); print_hex(desc_idx, 0x00FF00); tty_print("\n", 0x00FF00);
+            tty_print(" VirtIO: TX packet acknowledged. Desc=", 0x00FF00); print_hex(desc_idx, 0x00FF00); tty_print("\n", 0x00FF00);
             
             // 重要：在这里释放为发送而分配的缓冲区
             // pmm_free_page( (void*)tx_q->desc[desc_idx].addr ); // 暂缓实现
