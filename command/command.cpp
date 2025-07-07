@@ -20,9 +20,9 @@ extern void init_shell();
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-void *memcpy(void *dest, const void *src, size_t n);
-#ifdef __cplusplus
+    #endif
+    void *memcpy(void *dest, const void *src, size_t n);
+    #ifdef __cplusplus
 }
 #endif
 
