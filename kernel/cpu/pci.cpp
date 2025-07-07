@@ -16,7 +16,7 @@ uint32_t pci_read_dword(uint8_t bus, uint8_t device, uint8_t function, uint8_t o
 // 辅助函数：根据 Class Code 打印设备类型
 void pci_print_device_type(uint8_t class_code, uint8_t subclass_code, uint8_t prog_if) {
     uint32_t default_color = 0xFFFFFF; // 白色
-    uint32_t network_color = 0x00FFFF; // 青色 (或你喜欢的 RGB 值)
+    uint32_t network_color = 0x00FFFF; // 青色
     tty_print("Class: ", default_color); print_hex(class_code, default_color); tty_print(" Sub: ", default_color); print_hex(subclass_code, default_color); tty_print(" PI: ", default_color); print_hex(prog_if, default_color);
     tty_print(" (", default_color);
     if (class_code == PCI_CLASS_NETWORK_CONTROLLER) {
@@ -96,7 +96,6 @@ void pci_write_dword(uint8_t bus, uint8_t device, uint8_t function, uint8_t offs
 }
 
 void pci_init() {
-    // 确保 ports.h 提供了 inw/outw 和 inl/outl
     // 不需要额外的初始化，直接调用 pci_scan_bus 即可
 }
 

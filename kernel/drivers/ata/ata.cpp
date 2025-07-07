@@ -36,7 +36,6 @@ static bool ata_read_buffer(uint16_t* buffer, size_t words) {
 }
 
 //  公共接口函数 
-
 void ata_init() {
     // 我们可以尝试识别一下硬盘
     outb(ATA_MASTER_DRIVE_SEL, 0xA0); // Select master drive

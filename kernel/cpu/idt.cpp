@@ -3,7 +3,7 @@
 // 外部汇编函数
 extern "C" void idt_load(uint64_t idt_ptr_addr);
 
-// 声明我们的256个汇编 ISR 存根
+// 声明256个汇编 ISR 存根
 extern "C" {
     void isr0(); void isr1(); void isr2(); void isr3();
     void isr4(); void isr5(); void isr6(); void isr7();

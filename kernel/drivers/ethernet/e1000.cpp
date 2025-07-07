@@ -70,7 +70,7 @@ void e1000_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) {
     tty_print("E1000 MMIO @ 0x", 0xFFFFFF); print_hex((uint64_t)e1000_mmio_base, 0x00FFFF); tty_print("\n", 0x00FFFF);
     tty_print("E1000 PCI Interrupt Line set to: 0x", 0xFFFFFF); print_hex(pci_read_dword(pci_bus, pci_device, pci_function, 0x3C), 0x00FFFF); tty_print("\n", 0x00FFFF);
 
-    // 4. E1000 网卡复位 (更彻底的复位)
+    // 4. E1000 网卡复位
     e1000_write_reg(E1000_REG_CTRL, 0x04000000); // RST bit (Bit 26)
     for(volatile int i = 0; i < 1000000; i++); // 忙等待
     e1000_write_reg(E1000_REG_CTRL, 0); // Clear RST bit
@@ -276,6 +276,5 @@ void e1000_handle_interrupt() {
     e1000_read_reg(E1000_REG_ICR); 
 }
 
-// PCI 写入 DWORD (pci.cpp 中缺少)
 // 外部声明，让 e1000.cpp 能用
 extern void pci_write_dword(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset, uint32_t value);
