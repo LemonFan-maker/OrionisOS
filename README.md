@@ -86,6 +86,10 @@ OrionisOS 已经具备了作为现代操作系统核心的诸多功能，以下�
 
 `nettest`：执行网络测试，尝试发送一个 ARP 请求。
 
+`lspci`：查看目前所有的PCI设备。
+
+`reboot`：重启系统。
+
 **调试模式**：通过 `debug` / `undebug` 命令，动态开启/关闭命令解析的详细调试信息。
 
 ## 🛠️ 技术栈 (Technology Stack)
@@ -150,31 +154,7 @@ make run
 ## ⌨️ 使用 OrionisOS (Usage)
 
 当 OrionisOS 在 QEMU 中启动后，你将看到初始化信息，然后是 Shell 提示符 `> `。
-你可以尝试以下命令：
-
-`help`：获取命令列表。
-
-`clear`：清空屏幕。
-
-`meminfo`：查看内存状态。
-
-`cpuinfo`：查看 CPU 信息。
-
-`time`：显示当前时间。
-
-`nettest`：执行网络测试（发送 ARP 请求）。
-
-`shutdown`：关闭虚拟机。
-
-`debug` / `undebug`：开启/关闭调试信息。
-
-`panic`：手动触发内核恐慌。
-
-`echo <text>`：回显文本。
-
-`version`：查看版本信息。
-
-`lspci`：查看目前所有的PCI设备。
+你可以尝试的命令参考上文`命令行 (Shell)`
 
 ## 🗺️ 未来展望 (Future Plans / Roadmap)
 
