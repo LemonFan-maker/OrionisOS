@@ -1,3 +1,4 @@
+# 基于 BruhOS (MIT) 的衍生修改 © soumitradev  
 #  工具链和程序 
 CXX        = x86_64-elf-g++
 LD         = x86_64-elf-ld
