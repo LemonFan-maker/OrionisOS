@@ -1,3 +1,4 @@
+; 基于 BruhOS (MIT) 的衍生修改 © soumitradev  
 [bits 64]
 
 align 0x10
