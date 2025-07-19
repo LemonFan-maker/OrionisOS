@@ -23,6 +23,11 @@ void buddy_init(stivale_struct* boot_info);
 void* buddy_alloc(uint64_t size);
 void buddy_free(void* addr, uint64_t size);
 
+// Buddy分配器统计函数
+uint64_t buddy_get_total_pages();
+uint64_t buddy_get_used_pages();
+uint64_t buddy_get_free_pages();
+
 struct MemoryBlock {
     MemoryBlock* next;
 };
