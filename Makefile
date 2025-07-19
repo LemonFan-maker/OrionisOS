@@ -27,7 +27,7 @@ LDFLAGS = -nostdlib -static -no-pie -z max-page-size=0x1000 -T linker.ld
 
 #  QEMU 设置 
 QEMU_CMD   = qemu-system-x86_64
-QEMU_FLAGS = -m 2G \
+QEMU_FLAGS = -m 16M \
     -device isa-debug-exit,iobase=0x8900,iosize=0x01 \
     -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
     -device piix3-ide,id=ide0 \

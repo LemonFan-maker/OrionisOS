@@ -7,11 +7,18 @@
 extern void print(const char* str, uint32_t color);
 
 #define PAGE_SIZE 4096
+#define MAX_ORDER 16   // 最大块阶数，比如 2^16 = 64KB
+#define MIN_ORDER 12   // 最小块阶数，比如 2^12 = 4KB (页大小)
+
+MemoryBlock* free_list[MAX_ORDER - MIN_ORDER + 1];  // 每阶空闲块链表
 
 //  全局 PMM 变量 
 uint8_t* pmm_bitmap = nullptr;
 uint64_t total_pages = 0;
 uint64_t last_checked_page = 0; // 用于优化查找速度
+uint64_t total_physical_pages = 0;
+uint64_t buddy_used_pages = 0;
+uint64_t buddy_total_managed_pages = 0;
 
 //  位图操作函数 
 void pmm_bitmap_set(uint64_t page_index) {
@@ -24,6 +31,18 @@ void pmm_bitmap_clear(uint64_t page_index) {
 
 bool pmm_bitmap_test(uint64_t page_index) {
     return pmm_bitmap[page_index / 8] & (1 << (page_index % 8));
+}
+
+uint64_t buddy_get_total_pages() {
+    return total_physical_pages;
+}
+
+uint64_t buddy_get_used_pages() {
+    return buddy_used_pages;
+}
+
+uint64_t buddy_get_free_pages() {
+    return buddy_total_managed_pages - buddy_used_pages;
 }
 
 //  PMM 初始化 
@@ -133,10 +152,6 @@ uint64_t pmm_get_used_pages() {
     return used_pages;
 }
 
-#define MAX_ORDER 16   // 最大块阶数，比如 2^16 = 64KB
-#define MIN_ORDER 12   // 最小块阶数，比如 2^12 = 4KB (页大小)
-MemoryBlock* free_list[MAX_ORDER - MIN_ORDER + 1];  // 每阶空闲块链表
-
 // 计算order对应大小
 uint64_t size_for_order(int order) {
     return 1 << order;
@@ -171,6 +186,24 @@ void buddy_init(stivale_struct* boot_info) {
     } stivale_mmap_entry;
 
     stivale_mmap_entry* mmap = (stivale_mmap_entry*)boot_info->memory_map_addr;
+    
+    // 初始化统计变量
+    total_physical_pages = 0;
+    buddy_used_pages = 0;
+    buddy_total_managed_pages = 0;
+    
+    // 计算总物理内存页数
+    uint64_t highest_addr = 0;
+    for (uint64_t i = 0; i < boot_info->memory_map_entries; i++) {
+        uint64_t top = mmap[i].base + mmap[i].length;
+        if (top > highest_addr) {
+            highest_addr = top;
+        }
+        if (mmap[i].type == 1) { // 可用内存
+            total_physical_pages += mmap[i].length / PAGE_SIZE;
+        }
+    }
+    
     for (uint64_t i = 0; i < boot_info->memory_map_entries; i++) {
         print("Base:", 0xFFFFFF);
         print_hex(mmap[i].base, 0xFFFFFF);
@@ -180,10 +213,6 @@ void buddy_init(stivale_struct* boot_info) {
         print_hex(mmap[i].type, 0xFFFFFF);
         print("\n", 0xFFFFFF);
     }
-
-
-    //memory_pool = mmap->base;
-    //memory_size = mmap->length;
 
     // 清空空闲链表
     memset(free_list, 0, sizeof(free_list));
@@ -211,6 +240,9 @@ void buddy_init(stivale_struct* boot_info) {
             block->next = free_list[order - MIN_ORDER];
             free_list[order - MIN_ORDER] = block;
 
+            // 更新管理的页数统计
+            buddy_total_managed_pages += (1UL << order) / PAGE_SIZE;
+
             current += (1UL << order);
             remaining -= (1UL << order);
         }
@@ -233,6 +265,10 @@ void* buddy_alloc(uint64_t size) {
                 ((MemoryBlock*)buddy)->next = free_list[i - MIN_ORDER];
                 free_list[i - MIN_ORDER] = (MemoryBlock*)buddy;
             }
+            
+            // 更新使用统计
+            buddy_used_pages += size_for_order(order) / PAGE_SIZE;
+            
             return (void*)block;
         }
     }
@@ -244,6 +280,10 @@ void* buddy_alloc(uint64_t size) {
 // 释放内存块
 void buddy_free(void* addr, uint64_t size) {
     uint8_t order = get_order(size);
+    
+    // 更新使用统计
+    buddy_used_pages -= size_for_order(order) / PAGE_SIZE;
+    
     while (order < MAX_ORDER) {
         void* buddy = get_buddy(addr, order);
         // 在free_list[order - MIN_ORDER]中查找buddy

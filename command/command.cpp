@@ -69,16 +69,16 @@ void cmd_shutdown() {
 }
 
 void cmd_meminfo() {
-    uint64_t total_pages = pmm_get_total_pages();
-    uint64_t used_pages = pmm_get_used_pages();
-    uint64_t free_pages = total_pages - used_pages;
+    uint64_t total_pages = buddy_get_total_pages();
+    uint64_t used_pages = buddy_get_used_pages();
+    uint64_t free_pages = buddy_get_free_pages();
     uint64_t total_kb = total_pages * 4;
     uint64_t used_kb = used_pages * 4;
     uint64_t free_kb = free_pages * 4;
     uint64_t total_mb = total_kb / 1024;
     uint64_t used_mb = used_kb / 1024;
     uint64_t free_mb = free_kb / 1024;
-    tty_print("\n--- Physical Memory Status ---\n", 0x00FFFF);
+    tty_print("\n--- Physical Memory Status (Buddy Allocator) ---\n", 0x00FFFF);
     tty_print("Total Memory: ", 0xFFFFFF); print_dec(total_mb, 0xFFFFFF); tty_print(" MiB (", 0xFFFFFF); print_dec(total_kb, 0xAAAAAA); tty_print(" KiB)\n", 0xFFFFFF);
     tty_print("Used Memory:  ", 0xFFFFFF); print_dec(used_mb, 0xFFFFFF); tty_print(" MiB (", 0xFFFFFF); print_dec(used_kb, 0xAAAAAA); tty_print(" KiB)\n", 0xFFFFFF);
     tty_print("Free Memory:  ", 0xFFFFFF); print_dec(free_mb, 0xFFFFFF); tty_print(" MiB (", 0xFFFFFF); print_dec(free_kb, 0xAAAAAA); tty_print(" KiB)\n", 0xFFFFFF);
@@ -169,102 +169,10 @@ void cmd_panic() {
 }
 
 void cmd_memtest() {
-    tty_clear();
-    tty_print("\n[MemTest] Testing only free physical pages...\n", 0x00FFFF);
-    uint64_t total_pages = pmm_get_total_pages();
-    uint64_t tested_pages = 0;
-    uint64_t error_count = 0;
-    uint64_t step = total_pages / 100;
-    if (step == 0) step = 1;
-
-    // Increment pattern test
-    for (uint64_t i = 0; i < total_pages; ++i) {
-        // Test only free pages
-        extern bool pmm_bitmap_test(uint64_t page_index);
-        if (!pmm_bitmap_test(i)) {
-            uint32_t* page = (uint32_t*)(i * PAGE_SIZE);
-            size_t words = PAGE_SIZE / sizeof(uint32_t);
-            for (size_t j = 0; j < words; ++j) {
-                page[j] = (uint32_t)j;
-            }
-            tested_pages++;
-        }
-        if (i % step == 0) tty_print(".", 0xAAAAAA);
-    }
-    tty_print("\n[MemTest] Increment write completed, starting verification...\n", 0x00FFFF);
-    for (uint64_t i = 0; i < total_pages; ++i) {
-        extern bool pmm_bitmap_test(uint64_t page_index);
-        if (!pmm_bitmap_test(i)) {
-            uint32_t* page = (uint32_t*)(i * PAGE_SIZE);
-            size_t words = PAGE_SIZE / sizeof(uint32_t);
-            for (size_t j = 0; j < words; ++j) {
-                if (page[j] != (uint32_t)j) {
-                    error_count++;
-                    if (error_count < 5) {
-                        tty_print("[ERR] Page: 0x", 0xFF0000);
-                        print_hex((uint64_t)page, 0xFF0000);
-                        tty_print(" Offset:", 0xFF0000);
-                        print_hex(j * 4, 0xFF0000);
-                        tty_print(" Expected: 0x", 0xFF0000);
-                        print_hex((uint64_t)j, 0xFF0000);
-                        tty_print(" Actual: 0x", 0xFF0000);
-                        print_hex((uint64_t)page[j], 0xFF0000);
-                        tty_print("\n", 0xFF0000);
-                    }
-                }
-            }
-        }
-        if (i % step == 0) tty_print(".", 0xAAAAAA);
-    }
-    tty_print("\n[MemTest] Increment verification completed.\n", 0x00FFFF);
-
-    // Inverted pattern test
-    for (uint64_t i = 0; i < total_pages; ++i) {
-        extern bool pmm_bitmap_test(uint64_t page_index);
-        if (!pmm_bitmap_test(i)) {
-            uint32_t* page = (uint32_t*)(i * PAGE_SIZE);
-            size_t words = PAGE_SIZE / sizeof(uint32_t);
-            for (size_t j = 0; j < words; ++j) {
-                page[j] = ~(uint32_t)j;
-            }
-        }
-        if (i % step == 0) tty_print(".", 0xAAAAAA);
-    }
-    tty_print("\n[MemTest] Inverted write completed, starting verification...\n", 0x00FFFF);
-    for (uint64_t i = 0; i < total_pages; ++i) {
-        extern bool pmm_bitmap_test(uint64_t page_index);
-        if (!pmm_bitmap_test(i)) {
-            uint32_t* page = (uint32_t*)(i * PAGE_SIZE);
-            size_t words = PAGE_SIZE / sizeof(uint32_t);
-            for (size_t j = 0; j < words; ++j) {
-                if (page[j] != ~(uint32_t)j) {
-                    error_count++;
-                    if (error_count < 5) {
-                        tty_print("[ERR] Page: 0x", 0xFF0000);
-                        print_hex((uint64_t)page, 0xFF0000);
-                        tty_print(" Offset:", 0xFF0000);
-                        print_hex(j * 4, 0xFF0000);
-                        tty_print(" Expected: 0x", 0xFF0000);
-                        print_hex(~(uint64_t)j, 0xFF0000);
-                        tty_print(" Actual: 0x", 0xFF0000);
-                        print_hex((uint64_t)page[j], 0xFF0000);
-                        tty_print("\n", 0xFF0000);
-                    }
-                }
-            }
-        }
-        if (i % step == 0) tty_print(".", 0xAAAAAA);
-    }
-    tty_print("\n[MemTest] Inverted verification completed.\n", 0x00FFFF);
-
-    if (error_count == 0) {
-        tty_print("[MemTest] All tests passed!\n", 0x00FF00);
-    } else {
-        tty_print("[MemTest] Errors detected: ", 0xFF0000);
-        print_hex(error_count, 0xFF0000);
-        tty_print("\n", 0xFF0000);
-    }
-    tty_print("\nMemtest Finish\n", 0x00FF00);
+    tty_print("\n[MemTest] Memory test is currently disabled.\n", 0xFFFF00);
+    tty_print("The system is now using Buddy allocator instead of PMM bitmap.\n", 0xFFFF00);
+    tty_print("MemTest needs to be updated to work with the new allocator.\n", 0xFFFF00);
+    tty_print("Use 'meminfo' to view current memory status.\n", 0x00FFFF);
 }
 
 void cmd_nettest_virtio() {
