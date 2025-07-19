@@ -94,24 +94,25 @@ static void virtio_write_cap_64(volatile uint8_t* cap_base_ptr, uint32_t offset_
 static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs) {
     //  0. 为 virtq 结构体本身分配内存 
     // 如果你有 kmalloc，用它更好。如果没有，用 pmm_alloc_page() 也可以，只是有点浪费。
-    struct virtq* q = (struct virtq*)pmm_alloc_page(); // 假设用页分配器
+    struct virtq* q = (struct virtq*)buddy_alloc(sizeof(struct virtq)); // 假设用页分配器
+
     if (!q) return nullptr;
     memset(q, 0, sizeof(struct virtq)); // 只清零结构体本身的大小
 
     // 同样，用 kmalloc 更好。这里我们再分配一个页来存放它。
-    q->buffers = (uint8_t**)pmm_alloc_page();
+    q->buffers = (uint8_t**)buddy_alloc(sizeof(uint8_t*));
     if (!q->buffers) {
-        pmm_free_page(q);
+        buddy_free(q, sizeof(struct virtq));
         return nullptr;
     }
     memset(q->buffers, 0, num_descs * sizeof(uint8_t*)); // 清零指针数组
 
     //  2. 为描述符环、可用环、已用环分配内存 (现在它们需要自己的页) 
-    q->desc = (struct virtq_desc*)pmm_alloc_page();
+    q->desc = (struct virtq_desc*)buddy_alloc(sizeof(struct virtq_desc));
     if (!q->desc) { /* ... 错误处理，释放已分配的内存 ... */ return nullptr; }
     
     // 计算可用环和已用环的地址，它们可以共享一页
-    uintptr_t ring_page = (uintptr_t)pmm_alloc_page();
+    uintptr_t ring_page = (uintptr_t)buddy_alloc(sizeof(uintptr_t));
     if (!ring_page) { /* ... 错误处理 ... */ return nullptr; }
     q->avail = (struct virtq_avail*)ring_page;
     q->used = (struct virtq_used*)(ring_page + 1024); // 简单地将它们放在一页的不同位置
@@ -135,7 +136,7 @@ static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs) {
     if (virtio_read_cap_16(common_cfg_ptr, 0x1C /* queue_enable */)) {
         tty_print("VirtIO FATAL: Queue #", 0xFF0000); print_hex(q_idx, 0xFF0000);
         tty_print(" is already enabled before setup!\n", 0xFF0000);
-        pmm_free_page(q);
+        buddy_free(q, sizeof(struct virtq));
         return nullptr;
     }
 
@@ -165,7 +166,7 @@ static struct virtq* virtq_alloc(uint16_t q_idx, uint16_t num_descs) {
 
 // virtq_free (简化，仅释放页)
 static void virtq_free(struct virtq* q) {
-    if (q) pmm_free_page(q);
+    if (q) buddy_free(q, sizeof(struct virtq));
 }
 
 // virtq_add_buf (添加缓冲区到队列)
@@ -381,7 +382,7 @@ void virtio_net_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) 
 
     // 9. 填充接收队列
     for (int i = 0; i < NUM_RX_DESC; i++) {
-        rx_q->buffers[i] = (uint8_t*)pmm_alloc_page(); // 分配缓冲区
+        rx_q->buffers[i] = (uint8_t*)buddy_alloc(sizeof(uint8_t)); // 分配缓冲区
         memset(rx_q->buffers[i], 0, 10); // 清零 virtio_net_hdr
         virtq_add_buf(rx_q, rx_q->buffers[i], PAGE_SIZE, VIRTQ_DESC_F_WRITE); 
     }
@@ -433,7 +434,7 @@ bool virtio_net_send_packet(const uint8_t* data, uint16_t len) {
 
     //    这个缓冲区需要包含 VirtIO Net Header (10 bytes) 和数据包本身。
     uint16_t total_len = 10 + len;
-    uint8_t* tx_buffer = (uint8_t*)pmm_alloc_page(); // 或者用 kmalloc(total_len)
+    uint8_t* tx_buffer = (uint8_t*)buddy_alloc(sizeof(uint8_t)); // 或者用 kmalloc(total_len)
     if (!tx_buffer) {
         tty_print("VirtIO TX: Failed to allocate buffer for sending!\n", 0xFF0000);
         return false;
@@ -447,7 +448,7 @@ bool virtio_net_send_packet(const uint8_t* data, uint16_t len) {
     //    这里的 flags 必须是 0 (设备只读)
     if (virtq_add_buf(tx_q, tx_buffer, total_len, 0) != 0) {
         tty_print("VirtIO TX: Failed to add buffer to virtqueue. Queue full?\n", 0xFF0000);
-        pmm_free_page(tx_buffer); // 释放我们分配的内存
+        buddy_free(tx_buffer, sizeof(uint8_t)); // 释放我们分配的内存
         return false;
     }
 

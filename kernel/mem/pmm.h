@@ -15,3 +15,14 @@ void pmm_free_page(void* page);
 
 uint64_t pmm_get_total_pages();
 uint64_t pmm_get_used_pages();
+
+uint64_t size_for_order(int order);
+int get_order(uint64_t size);
+void* get_buddy(void* addr, int order);
+void buddy_init(stivale_struct* boot_info);
+void* buddy_alloc(uint64_t size);
+void buddy_free(void* addr, uint64_t size);
+
+struct MemoryBlock {
+    MemoryBlock* next;
+};

@@ -157,9 +157,9 @@ extern "C" void kmain(struct stivale_struct *stivale_struct) {
     asm volatile ("sti");
     print("\nInterrupts enabled.\n", green);
 
-    print("Initializing PMM...", white);
-    init_pmm(boot_info);
-    print("\nPMM ready.\n", green);
+    print("Initializing Buddy...", white);
+    buddy_init(boot_info);
+    print("\nBuddy ready.\n", green);
 
     // 初始化 Keyboard
     print("Initializing Keyboard...", white);

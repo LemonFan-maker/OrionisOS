@@ -1,6 +1,7 @@
 #include "pmm.h"
 #include "kernel/boot.h"
 #include "tty.h"
+#include "lib/libc.h"
 
 //  外部依赖 
 extern void print(const char* str, uint32_t color);
@@ -130,4 +131,144 @@ uint64_t pmm_get_used_pages() {
         }
     }
     return used_pages;
+}
+
+#define MAX_ORDER 16   // 最大块阶数，比如 2^16 = 64KB
+#define MIN_ORDER 12   // 最小块阶数，比如 2^12 = 4KB (页大小)
+MemoryBlock* free_list[MAX_ORDER - MIN_ORDER + 1];  // 每阶空闲块链表
+
+// 计算order对应大小
+uint64_t size_for_order(int order) {
+    return 1 << order;
+}
+
+// 计算请求大小对应order（向上取整）
+int get_order(uint64_t size) {
+    int order = MIN_ORDER;
+    uint64_t block_size = 1 << order;
+    while (block_size < size) {
+        order++;
+        block_size <<= 1;
+    }
+    return order;
+}
+
+// 计算伙伴地址
+void* get_buddy(void* addr, int order) {
+    uint64_t block_size = size_for_order(order);
+    uintptr_t base = (uintptr_t)addr;
+    uintptr_t buddy = base ^ block_size;
+    return (void*)buddy;
+}
+
+void buddy_init(stivale_struct* boot_info) {
+    // 确认 stivale_mmap_entry 的定义，这在 stivale.h 中
+    typedef struct {
+        uint64_t base;
+        uint64_t length;
+        uint32_t type;
+        uint32_t unused;
+    } stivale_mmap_entry;
+
+    stivale_mmap_entry* mmap = (stivale_mmap_entry*)boot_info->memory_map_addr;
+    for (uint64_t i = 0; i < boot_info->memory_map_entries; i++) {
+        print("Base:", 0xFFFFFF);
+        print_hex(mmap[i].base, 0xFFFFFF);
+        print(" Length:", 0xFFFFFF);
+        print_hex(mmap[i].length, 0xFFFFFF);
+        print(" Type:", 0xFFFFFF);
+        print_hex(mmap[i].type, 0xFFFFFF);
+        print("\n", 0xFFFFFF);
+    }
+
+
+    //memory_pool = mmap->base;
+    //memory_size = mmap->length;
+
+    // 清空空闲链表
+    memset(free_list, 0, sizeof(free_list));
+
+    // 遍历所有可用的内存区域
+    for (uint64_t i = 0; i < boot_info->memory_map_entries; i++) {
+        if (mmap[i].type != 1) continue;  // 只使用可用的内存（type == 1）
+
+        uintptr_t current = (uintptr_t)mmap[i].base;
+        uint64_t remaining = mmap[i].length;
+
+        // 对当前可用区域分配为buddy块
+        while (remaining >= PAGE_SIZE) {
+            // 找到当前剩余大小下最大的 order
+            int order = MAX_ORDER;
+            while ((1UL << order) > remaining || (current % (1UL << order)) != 0) {
+                order--;
+                if (order < MIN_ORDER) break; // 防止无穷循环
+            }
+
+            if (order < MIN_ORDER) break; // 不再能分配最小块了
+
+            // 插入 free_list[order - MIN_ORDER]
+            MemoryBlock* block = (MemoryBlock*)current;
+            block->next = free_list[order - MIN_ORDER];
+            free_list[order - MIN_ORDER] = block;
+
+            current += (1UL << order);
+            remaining -= (1UL << order);
+        }
+    }
+}
+
+// 分配内存块
+void* buddy_alloc(uint64_t size) {
+    int order = get_order(size);
+    for (int i = order; i <= MAX_ORDER; i++) {
+        if (free_list[i - MIN_ORDER] != nullptr) {
+            // 找到合适阶的块
+            MemoryBlock* block = free_list[i - MIN_ORDER];
+            free_list[i - MIN_ORDER] = block->next;
+
+            // 拆分成小块直到满足请求阶
+            while (i > order) {
+                i--;
+                void* buddy = (void*)((uintptr_t)block + size_for_order(i));
+                ((MemoryBlock*)buddy)->next = free_list[i - MIN_ORDER];
+                free_list[i - MIN_ORDER] = (MemoryBlock*)buddy;
+            }
+            return (void*)block;
+        }
+    }
+    print("Buddy: No free block found for size ", 0xFF0000);
+    // 无空闲块
+    return nullptr;
+}
+
+// 释放内存块
+void buddy_free(void* addr, uint64_t size) {
+    uint8_t order = get_order(size);
+    while (order < MAX_ORDER) {
+        void* buddy = get_buddy(addr, order);
+        // 在free_list[order - MIN_ORDER]中查找buddy
+        MemoryBlock** cur = &free_list[order - MIN_ORDER];
+        while (*cur && *cur != buddy) {
+            cur = &((*cur)->next);
+        }
+        if (*cur != buddy) {
+            // 伙伴不空闲，插入链表结束
+            MemoryBlock* block = (MemoryBlock*)addr;
+            block->next = free_list[order - MIN_ORDER];
+            free_list[order - MIN_ORDER] = block;
+            return;
+        }
+        // 找到伙伴，移除它
+        *cur = (*cur)->next;
+
+        // 取两个块中地址较小的作为合并块地址
+        if (buddy < addr) {
+            addr = buddy;
+        }
+        order++;
+    }
+    // 插入最大阶链表
+    MemoryBlock* block = (MemoryBlock*)addr;
+    block->next = free_list[MAX_ORDER - MIN_ORDER];
+    free_list[MAX_ORDER - MIN_ORDER] = block;
 }

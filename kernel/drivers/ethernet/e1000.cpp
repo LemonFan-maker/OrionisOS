@@ -97,11 +97,11 @@ void e1000_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) {
 
     // 8. 初始化接收环形缓冲区
     rx_cur = 0;
-    uintptr_t rx_ring_phys = (uintptr_t)pmm_alloc_page();
+    uintptr_t rx_ring_phys = (uintptr_t)buddy_alloc(sizeof(uintptr_t));
     tty_print("RX Ring @ 0x", 0xFFFFFF); print_hex(rx_ring_phys, 0x00FFFF); tty_print("\n", 0x00FFFF);
     for (int i = 0; i < NUM_RX_DESC; i++) {
         rx_descs[i] = (struct e1000_rx_desc*)((uintptr_t)rx_ring_phys + i * sizeof(struct e1000_rx_desc));
-        rx_buffers[i] = (uint8_t*)pmm_alloc_page();
+        rx_buffers[i] = (uint8_t*)buddy_alloc(sizeof(uint8_t));
         rx_descs[i]->addr = (uint64_t)rx_buffers[i];
         rx_descs[i]->status = 0;
         rx_descs[i]->length = 0;
@@ -114,11 +114,11 @@ void e1000_init(uint8_t pci_bus, uint8_t pci_device, uint8_t pci_function) {
 
     // 9. 初始化发送环形缓冲区 (类似接收)
     tx_cur = 0;
-    uintptr_t tx_ring_phys = (uintptr_t)pmm_alloc_page();
+    uintptr_t tx_ring_phys = (uintptr_t)buddy_alloc(sizeof(uintptr_t));
     tty_print("TX Ring @ 0x", 0xFFFFFF); print_hex(tx_ring_phys, 0x00FFFF); tty_print("\n", 0x00FFFF);
     for (int i = 0; i < NUM_TX_DESC; i++) {
         tx_descs[i] = (struct e1000_tx_desc*)((uintptr_t)tx_ring_phys + i * sizeof(struct e1000_tx_desc));
-        tx_buffers[i] = (uint8_t*)pmm_alloc_page();
+        tx_buffers[i] = (uint8_t*)buddy_alloc(sizeof(uintptr_t));
         tx_descs[i]->addr = (uint64_t)tx_buffers[i];
         tx_descs[i]->cmd = 0;
         tx_descs[i]->status = (1 << 0); // DD (Descriptor Done) bit 0
