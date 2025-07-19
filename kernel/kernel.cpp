@@ -6,6 +6,7 @@
 #include "boot.h"
 #include "kernel/drivers/tty.h"
 #include "mem/pmm.h"
+#include "mem/paging.h"
 #include "command/shell.h"
 
 // ================== CPU/中断/定时器/PCI/驱动头文件 ==================
@@ -160,6 +161,10 @@ extern "C" void kmain(struct stivale_struct *stivale_struct) {
     print("Initializing Buddy...", white);
     buddy_init(boot_info);
     print("\nBuddy ready.\n", green);
+
+    print("Init paging...", white);
+    initPML4();
+    print("\nPaging initialized.\n", green);
 
     // 初始化 Keyboard
     print("Initializing Keyboard...", white);
