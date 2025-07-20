@@ -22,14 +22,7 @@ static uint64_t tick = 0;
 extern "C" void isr_handler(registers_t* regs) {
     //  1. 处理 CPU 异常 (0-31) 
     if (regs->int_no < 32) {
-        if (regs->int_no == 3) { // Breakpoint
-            kernel_panic(regs, "Breakpoint exception (int 3) triggered.");
-        } else {
-            tty_print("Received CPU Exception: ", 0xFF0000);
-            print_hex(regs->int_no, 0xFF0000);
-            tty_print(" - Halting.\n", 0xFF0000);
-            kernel_panic(regs, "Unhandled CPU Exception.");
-        }
+       kernel_panic(regs, regs->int_no);
     }
     //  2. 处理硬件中断 (32-47) 
     else if (regs->int_no >= 32 && regs->int_no < 48) {
@@ -71,6 +64,6 @@ extern "C" void isr_handler(registers_t* regs) {
         tty_print("Received Unknown Interrupt: ", 0xFFFFFF);
         print_hex(regs->int_no, 0xFFFFFF);
         tty_print(" - Halting.\n", 0xFFFFFF);
-        kernel_panic(regs, "Unknown Interrupt.");
+        kernel_panic(regs, regs->int_no);
     }
 }
