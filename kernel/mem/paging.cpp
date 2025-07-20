@@ -36,9 +36,6 @@ void setPageTableEntry(PageEntry* entry, uint8_t flags, uintptr_t physical_addre
 
 void freePageTableEntry(PageEntry* entry) {
     if (entry->present) {
-        // 回收物理内存
-        //void* physical_address = (void*) (entry->physical_address << 12);
-        //buddy_free(physical_address, 4096);
         // 清空页表条目
         entry->present = 0;
         entry->writable = 0;
@@ -76,6 +73,10 @@ static void allocateEntry(PageTable* table, size_t index, uint8_t flags) {
     setPageTableEntry(&(table->entries[index]), flags, (uintptr_t) physical_address >> 12, 0);
 }
 
+static void freeEntry(PageTable* table) {
+    buddy_free(table, 4096);
+}
+
 
 void mapPage(void* virtual_address, void* physical_address, uint8_t flags) {
     // 确保两个地址都是对齐的
@@ -109,6 +110,7 @@ void mapPage(void* virtual_address, void* physical_address, uint8_t flags) {
 }
 
 void unmapPage(void* virtual_address) {
+    if (virtual_address == nullptr) return;
     uintptr_t virtual_address_int = (uintptr_t) virtual_address;
 
     uint64_t pml4_index = (virtual_address_int >> 39) & 0x1FF;
@@ -131,15 +133,15 @@ void unmapPage(void* virtual_address) {
     freePageTableEntry(&(page_table->entries[page_table_index]));
 
     // 这里要清理上面的各级页表，检查是否需要释放更高层的页表
-    /*if (!anyPageTableEntryUsed(page_table)) {
-        freePageTableEntry(page_directory, page_directory_index);
+    if (!anyPageTableEntryUsed(page_table)) {
+        freeEntry(page_directory);
     }
     if (!anyPageTableEntryUsed(page_directory)) {
-        freePageTableEntry(page_directory_pointer, page_directory_pointer_index);
+        freeEntry(page_directory_pointer);
     }
     if (!anyPageTableEntryUsed(page_directory_pointer)) {
-        freePageTableEntry(pml4, pml4_index);
-    }*/
+        freeEntry(pml4);
+    }
 
     // 刷新TLB
     flushTLB(virtual_address);
