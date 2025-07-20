@@ -202,6 +202,32 @@ extern "C" void kmain(struct stivale_struct *stivale_struct) {
     pci_scan_bus(my_pci_device_callback);
     tty_print("PCI bus scan done.\n", 0x4EC9B0);
 
+
+    tty_print("Testing paging...\n", 0xFFFFFF);
+    uint64_t* p = getPhysicalAddress((void*) 0x9000);
+    uint64_t* f = getPhysicalAddress((void*) 0xA000);
+
+    mapPage((void*)0x9000, (void*) 0x1000, 3);
+    mapPage((void*)0xA000, (void*) 0x1000, 3);
+
+    p = getPhysicalAddress((void*) 0x9001);
+    f = getPhysicalAddress((void*) 0xA000);
+
+    uint64_t* y = (uint64_t*) 0x9000;
+    *y = 0x114514;
+    print_hex(*y, 0xFFFFFF); // 若分页运行正常，应该输出*y的值
+    tty_print("\n", 0xFFFFFF);
+    uint64_t* z = (uint64_t*) 0xA000;
+    print_hex(*z, 0xFFFFFF);
+    tty_print("\n", 0xFFFFFF);
+
+
+    print_hex((uint64_t)p, 0xFFFFFF);
+    tty_print("\n", 0xFFFFFF);
+    print_hex((uint64_t)f, 0xFFFFFF);
+    tty_print("\n", 0xFFFFFF);
+    tty_print("\nPaging test done.\n", 0x4EC9B0);
+
     print("[System ready.]\n", blue);
 
     init_shell();
