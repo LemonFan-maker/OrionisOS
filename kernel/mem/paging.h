@@ -27,3 +27,5 @@ size_t* getPhysicalAddress(void* virtual_address);
 PageTable* initPML4(void); 
 void mapPage(void* virtual_address, void* physical_address, uint8_t flags);
 uint64_t readCR3(void);
+void unmapPage(void* virtual_address);
+bool anyPageTableEntryUsed(PageTable* table);

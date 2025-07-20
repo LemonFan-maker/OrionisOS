@@ -203,29 +203,46 @@ extern "C" void kmain(struct stivale_struct *stivale_struct) {
     tty_print("PCI bus scan done.\n", 0x4EC9B0);
 
 
-    tty_print("Testing paging...\n", 0xFFFFFF);
-    uint64_t* p = getPhysicalAddress((void*) 0x9000);
-    uint64_t* f = getPhysicalAddress((void*) 0xA000);
-
+    tty_print("\n-----Testing Paging-----\n", 0x569CD6);
+    // 映射虚拟地址到物理地址
     mapPage((void*)0x9000, (void*) 0x1000, 3);
     mapPage((void*)0xA000, (void*) 0x1000, 3);
 
-    p = getPhysicalAddress((void*) 0x9001);
-    f = getPhysicalAddress((void*) 0xA000);
+    // 获取映射后的物理地址
+    uint64_t* p = getPhysicalAddress((void*) 0x9000);
+    uint64_t* f = getPhysicalAddress((void*) 0xA000);
 
+    // 写入虚拟地址 0x9000，并读取
     uint64_t* y = (uint64_t*) 0x9000;
     *y = 0x114514;
     print_hex(*y, 0xFFFFFF); // 若分页运行正常，应该输出*y的值
     tty_print("\n", 0xFFFFFF);
+
     uint64_t* z = (uint64_t*) 0xA000;
-    print_hex(*z, 0xFFFFFF);
+    *z = 0x1919810;
+    print_hex(*z, 0xFFFFFF); // 若分页运行正常，应该输出*z的值
     tty_print("\n", 0xFFFFFF);
 
-
+    // 输出虚拟地址映射到的物理地址
     print_hex((uint64_t)p, 0xFFFFFF);
     tty_print("\n", 0xFFFFFF);
     print_hex((uint64_t)f, 0xFFFFFF);
     tty_print("\n", 0xFFFFFF);
+
+    // 释放分页映射
+    tty_print("\nReleasing paging...\n", 0xFF6347);
+    unmapPage((void*) 0x9000); // 释放虚拟地址 0x9000 的映射
+    unmapPage((void*) 0xA000); // 释放虚拟地址 0xA000 的映射
+
+    // 释放后再访问虚拟地址，检查是否出错
+    uint64_t* p_after_unmap = getPhysicalAddress((void*) 0x9000);
+    uint64_t* f_after_unmap = getPhysicalAddress((void*) 0xA000);
+
+    print_hex((uint64_t)p_after_unmap, 0xFF6347);
+    tty_print("\n", 0xFFFFFF);
+    print_hex((uint64_t)f_after_unmap, 0xFF6347);
+    tty_print("\n", 0xFFFFFF);
+
     tty_print("\nPaging test done.\n", 0x4EC9B0);
 
     print("[System ready.]\n", blue);

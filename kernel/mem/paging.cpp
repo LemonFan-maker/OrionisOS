@@ -34,6 +34,26 @@ void setPageTableEntry(PageEntry* entry, uint8_t flags, uintptr_t physical_addre
     entry->no_execute = flags >> 7;
 }
 
+void freePageTableEntry(PageEntry* entry) {
+    if (entry->present) {
+        // 回收物理内存
+        //void* physical_address = (void*) (entry->physical_address << 12);
+        //buddy_free(physical_address, 4096);
+        // 清空页表条目
+        entry->present = 0;
+        entry->writable = 0;
+        entry->user_accessible = 0;
+        entry->write_through_caching = 0;
+        entry->disable_cache = 0;
+        entry->null = 0;
+        entry->global = 0;
+        entry->avl1 = 0;
+        entry->physical_address = 0;
+        entry->avl2 = 0;
+        entry->no_execute = 0;
+    }
+}
+
 size_t* getPhysicalAddress(void* virtual_address) 
 {
     uintptr_t address = (uintptr_t) virtual_address;
@@ -58,7 +78,7 @@ static void allocateEntry(PageTable* table, size_t index, uint8_t flags) {
 
 
 void mapPage(void* virtual_address, void* physical_address, uint8_t flags) {
-    // Make sure that both addresses are page-aligned.
+    // 确保两个地址都是对齐的
     uintptr_t virtual_address_int = (uintptr_t) virtual_address;
     uintptr_t physical_address_int = (uintptr_t) physical_address;
 
@@ -84,6 +104,53 @@ void mapPage(void* virtual_address, void* physical_address, uint8_t flags) {
 
     setPageTableEntry(&(page_table->entries[page_table_index]), flags, physical_address_int >> 12, 0);
 	
-    // Now you need to flush the entry in the TLB
+    // 刷新TLB
     flushTLB(virtual_address);
+}
+
+void unmapPage(void* virtual_address) {
+    uintptr_t virtual_address_int = (uintptr_t) virtual_address;
+
+    uint64_t pml4_index = (virtual_address_int >> 39) & 0x1FF;
+    uint64_t page_directory_pointer_index = (virtual_address_int >> 30) & 0x1FF;
+    uint64_t page_directory_index = (virtual_address_int >> 21) & 0x1FF;
+    uint64_t page_table_index = (virtual_address_int >> 12) & 0x1FF;
+
+    if (!pml4->entries[pml4_index].present) return; // 如果该页表项不存在，直接返回
+
+    PageTable* page_directory_pointer = (PageTable*) (uint64_t) (pml4->entries[pml4_index].physical_address << 12);
+
+    if (!page_directory_pointer->entries[page_directory_pointer_index].present) return; // 如果该页表项不存在，直接返回
+
+    PageTable* page_directory = (PageTable*) (uint64_t) (page_directory_pointer->entries[page_directory_pointer_index].physical_address << 12);
+
+    if (!page_directory->entries[page_directory_index].present) return; // 如果该页表项不存在，直接返回
+
+    PageTable* page_table = (PageTable*) (uint64_t) (page_directory->entries[page_directory_index].physical_address << 12);
+
+    freePageTableEntry(&(page_table->entries[page_table_index]));
+
+    // 这里要清理上面的各级页表，检查是否需要释放更高层的页表
+    /*if (!anyPageTableEntryUsed(page_table)) {
+        freePageTableEntry(page_directory, page_directory_index);
+    }
+    if (!anyPageTableEntryUsed(page_directory)) {
+        freePageTableEntry(page_directory_pointer, page_directory_pointer_index);
+    }
+    if (!anyPageTableEntryUsed(page_directory_pointer)) {
+        freePageTableEntry(pml4, pml4_index);
+    }*/
+
+    // 刷新TLB
+    flushTLB(virtual_address);
+}
+
+// 检查页表是否仍然被使用（即是否有任何有效条目）
+bool anyPageTableEntryUsed(PageTable* table) {
+    for (int i = 0; i < 512; i++) {
+        if (table->entries[i].present) {
+            return true;
+        }
+    }
+    return false;
 }
